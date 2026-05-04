@@ -1,0 +1,13 @@
+{
+  "name": "@integra/cli",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Developer tooling for integra integrations",
+  "bin": {
+    "integra": "src/index.js"
+  },
+  "dependencies": {
+    "@integra/engine": "*"
+  },
+  "license": "Apache-2.0"
+}

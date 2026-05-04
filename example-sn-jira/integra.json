@@ -1,0 +1,6 @@
+{
+  "id": "example-sn-jira",
+  "entry": "sync-incident-sn-to-jira",
+  "engine": "1.0.0",
+  "description": "Syncs incidents from ServiceNow to Jira"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "jira-create-issue",
+  "short_description": "Creates a new issue in Jira",
+  "purpose": "write",
+  "request": {
+    "type": "POST",
+    "endpoint": "{{env.JIRA_BASE_URL}}/rest/api/3/issue",
+    "headers": {
+      "Authorization": "{{fn:jiraBasicAuth(env.JIRA_USER, env.JIRA_API_TOKEN)}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "body": "{{shared.jira_issue_payload}}"
+  },
+  "output": "{{fn:jiraStore('jira_created_issue')}}",
+  "resolver": "resolvers/jira.js"
+}

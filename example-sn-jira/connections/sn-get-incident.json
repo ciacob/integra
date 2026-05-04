@@ -1,0 +1,20 @@
+{
+  "id": "sn-get-incident",
+  "short_description": "Fetches open incidents from ServiceNow",
+  "purpose": "read",
+  "request": {
+    "type": "GET",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/table/incident",
+    "headers": {
+      "Authorization": "{{fn:basicAuth(env.SN_USER, env.SN_PASS)}}",
+      "Accept": "application/json"
+    },
+    "query": {
+      "sysparm_query": "stateNOT IN6,7&sysparm_limit=10",
+      "sysparm_fields": "sys_id,number,short_description,description,state,priority,assigned_to,category,opened_at"
+    }
+  },
+  "filter": "{{fn:snHasResults}}",
+  "output": "{{fn:snStore('sn_incidents')}}",
+  "resolver": "resolvers/servicenow.js"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "sn-to-jira-incident",
+  "short_description": "Maps a ServiceNow incident to a Jira issue payload",
+  "input": "{{shared.current_sn_incident}}",
+  "output": "{{fn:mapStore('jira_issue_payload')}}",
+  "defaults": {
+    "priority": "3",
+    "category": "software"
+  },
+  "overrides": {},
+  "transformation": {
+    "base": "{{fn:mapIncident(input)}}",
+    "defaults": {
+      "short_description": "summary",
+      "description":       "description"
+    },
+    "overrides": {
+      "priority": "fields.priority.name"
+    }
+  },
+  "resolver": "resolvers/itsm-maps.js"
+}

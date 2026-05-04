@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://integra.dev/schemas/connection.json",
+  "title": "Connection Component",
+  "description": "Describes a REST API connection — how to talk to a system and fetch or push data.",
+  "type": "object",
+  "required": ["id", "purpose", "request"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this connection component."
+    },
+    "short_description": {
+      "type": "string",
+      "description": "Human-readable summary of what this connection does."
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["read", "write", "readwrite"],
+      "description": "Whether this connection reads data, writes data, or both."
+    },
+    "request": {
+      "type": "object",
+      "required": ["type", "endpoint"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "URL. May contain {{placeholders}}."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "body": {
+          "description": "Request body. May be an object or a {{placeholder}}."
+        }
+      }
+    },
+    "validation": {
+      "type": "string",
+      "description": "Path to a JSON Schema file to validate the response against."
+    },
+    "filter": {
+      "type": "string",
+      "description": "A {{fn:call}} that returns true to keep the response, false to discard it."
+    },
+    "output": {
+      "type": "string",
+      "description": "A {{fn:call}} or {{placeholder}} describing where to store the response."
+    },
+    "resolver": {
+      "type": "string",
+      "description": "Relative path to the Node.js resolver module for this connection."
+    }
+  }
+}

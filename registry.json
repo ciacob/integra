@@ -1,0 +1,10 @@
+{
+  "integrations": [
+    {
+      "id":      "example-sn-jira",
+      "path":    "./example-sn-jira",
+      "enabled": true,
+      "description": "ServiceNow to Jira incident sync"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "result": [
+    {
+      "sys_id":            "abc123",
+      "number":            "INC0010001",
+      "short_description": "Printer on fire in Building A",
+      "description":       "The printer on the 3rd floor of Building A has caught fire. Users cannot print.",
+      "state":             "1",
+      "priority":          "2",
+      "category":          "hardware",
+      "assigned_to":       "john.doe",
+      "opened_at":         "2026-04-20 09:00:00"
+    },
+    {
+      "sys_id":            "def456",
+      "number":            "INC0010002",
+      "short_description": "VPN not connecting for remote users",
+      "description":       "Multiple remote users are reporting inability to connect to VPN since 8am.",
+      "state":             "2",
+      "priority":          "1",
+      "category":          "network",
+      "assigned_to":       "jane.smith",
+      "opened_at":         "2026-04-20 08:15:00"
+    }
+  ]
+}

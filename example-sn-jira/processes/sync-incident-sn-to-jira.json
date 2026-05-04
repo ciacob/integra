@@ -1,0 +1,56 @@
+{
+  "id": "sync-incident-sn-to-jira",
+  "short_description": "Fetches open incidents from ServiceNow and creates them in Jira",
+  "output": "{{fn:syncStore('sync_result')}}",
+  "resolver": "resolvers/sync.js",
+  "flow": {
+    "metadata": { "parallel": false },
+    "steps": [
+      {
+        "id": "fetch-incidents",
+        "component": "sn-get-incident",
+        "onError": "{{fn:handleFetchError}}"
+      },
+      {
+        "id": "check-results",
+        "if": "{{fn:hasIncidents(component.fetch-incidents.output)}}",
+        "steps": [
+          {
+            "id": "sync-loop",
+            "while": "{{fn:hasNextIncident}}",
+            "steps": [
+              {
+                "id": "prepare-incident",
+                "component": "sn-to-jira-incident",
+                "onError": "{{fn:handleMapError}}"
+              },
+              {
+                "id": "check-priority",
+                "if": "{{fn:isHighPriority(shared.current_sn_incident.priority)}}",
+                "steps": [
+                  {
+                    "id": "escalate-issuetype",
+                    "component": "sn-to-jira-incident",
+                    "overrides": {
+                      "fields.issuetype.name": "Bug"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "create-issue",
+                "component": "jira-create-issue",
+                "onError": "{{fn:handleCreateError}}"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "no-incidents",
+        "else": null,
+        "steps": []
+      }
+    ]
+  }
+}

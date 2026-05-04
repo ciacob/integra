@@ -1,0 +1,26 @@
+{
+  "name": "integra",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Configuration-driven integration engine",
+  "workspaces": [
+    "packages/engine",
+    "packages/cli",
+    "packages/manager"
+  ],
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests",
+    "lint": "eslint packages/*/src",
+    "build": "echo 'No build step required for ESM'"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "nock": "^13.0.0",
+    "eslint": "^8.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {}
+  },
+  "license": "Apache-2.0"
+}

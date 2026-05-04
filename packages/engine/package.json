@@ -1,0 +1,25 @@
+{
+  "name": "@integra/engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "The integra runtime engine",
+  "main": "src/index.js",
+  "bin": {
+    "integra-engine": "src/index.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./loader": "./src/loader.js",
+    "./executor": "./src/executor.js",
+    "./resolver": "./src/resolver.js",
+    "./linter": "./src/linter.js",
+    "./logger": "./src/logger.js",
+    "./shared": "./src/shared.js",
+    "./error": "./src/error.js"
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1"
+  },
+  "license": "Apache-2.0"
+}

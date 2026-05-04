@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://integra.dev/schemas/map.json",
+  "title": "Map Component",
+  "description": "Describes a data transformation — how to reshape one JSON object into another.",
+  "type": "object",
+  "required": ["id", "transformation"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this map component."
+    },
+    "short_description": {
+      "type": "string",
+      "description": "Human-readable summary of what this map does."
+    },
+    "input": {
+      "type": "string",
+      "description": "Where to read input data from. Usually a {{placeholder}} into shared space."
+    },
+    "output": {
+      "type": "string",
+      "description": "Where to store the mapped output. Usually a {{fn:store('key')}} call."
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Default values applied to missing input fields before transformation.",
+      "additionalProperties": true
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Values forced onto input fields before transformation, missing or not.",
+      "additionalProperties": true
+    },
+    "transformation": {
+      "type": "object",
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "string",
+          "description": "A {{fn:call}} that performs the primary transformation. Returns an object."
+        },
+        "defaults": {
+          "type": "object",
+          "description": "source->target dot-path mappings applied for pairs the base did not provide.",
+          "additionalProperties": { "type": "string" }
+        },
+        "overrides": {
+          "type": "object",
+          "description": "source->target dot-path mappings always applied, regardless of base output.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "resolver": {
+      "type": "string",
+      "description": "Relative path to the Node.js resolver module for this map."
+    }
+  }
+}
