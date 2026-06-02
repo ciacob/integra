@@ -1,10 +1,12 @@
 {
   "integrations": [
     {
-      "id":      "example-sn-jira",
-      "path":    "./example-sn-jira",
-      "enabled": true,
-      "description": "ServiceNow to Jira incident sync"
+      "id":          "example-sn-jira",
+      "path":        "./example-sn-jira",
+      "enabled":     true,
+      "description": "ServiceNow to Jira incident sync",
+      "schedule":    "*/5 * * * *",
+      "max_ttl":     240
     }
   ]
 }

@@ -5,7 +5,8 @@
 
 import pm2            from "pm2";
 import { logger }     from "./logger.js";
-import { buildDescriptor } from "./descriptor.js";
+import { buildIntegrationDescriptor,
+         buildTrafficControllerDescriptor } from "./descriptor.js";
 import { loadRegistry, saveRegistry, setEnabled } from "./registry.js";
 
 function pm2Connect() {
@@ -28,6 +29,15 @@ function pm2Save() {
   );
 }
 
+async function pm2StartOne(descriptor) {
+  return new Promise((res, rej) =>
+    pm2.start(descriptor, (err) => {
+      if (err) rej(err);
+      else     res();
+    })
+  );
+}
+
 export async function startAll(cwd = process.cwd()) {
   const integrations = await loadRegistry(cwd);
   const enabled      = integrations.filter(i => i.enabled !== false);
@@ -40,18 +50,33 @@ export async function startAll(cwd = process.cwd()) {
   await pm2Connect();
 
   for (const integration of enabled) {
-    const descriptor = buildDescriptor(integration, cwd);
-    await new Promise((res, rej) =>
-      pm2.start(descriptor, (err) => {
-        if (err) {
-          logger.error("integration.start.failed", { id: integration.id, message: err.message });
-          rej(err);
-        } else {
-          logger.info("integration.started", { id: integration.id });
-          res();
-        }
-      })
-    );
+    const scheduled = !!integration.schedule;
+
+    if (scheduled) {
+      // Scheduled integration: register the TrafficController only.
+      // The TC will start the integration process on its first cron tick.
+      // We do NOT start the integration directly here.
+      const tcDescriptor = buildTrafficControllerDescriptor(integration, cwd);
+      try {
+        await pm2StartOne(tcDescriptor);
+        logger.info("tc.registered", {
+          id:       integration.id,
+          schedule: integration.schedule,
+          tc:       tcDescriptor.name,
+        });
+      } catch (err) {
+        logger.error("tc.register.failed", { id: integration.id, message: err.message });
+      }
+    } else {
+      // Unscheduled integration: start directly, PM2 supervises as always.
+      const descriptor = buildIntegrationDescriptor(integration, cwd);
+      try {
+        await pm2StartOne(descriptor);
+        logger.info("integration.started", { id: integration.id });
+      } catch (err) {
+        logger.error("integration.start.failed", { id: integration.id, message: err.message });
+      }
+    }
   }
 
   await pm2Save();
@@ -60,24 +85,38 @@ export async function startAll(cwd = process.cwd()) {
 
 export async function stopOne(id, cwd = process.cwd()) {
   await pm2Connect();
-  await new Promise((res, rej) =>
-    pm2.stop(id, (err) => {
-      if (err) { logger.error("integration.stop.failed", { id, message: err.message }); rej(err); }
-      else     { logger.info("integration.stopped", { id }); res(); }
-    })
-  );
+
+  // Stop both the integration and its TC if present
+  for (const name of [id, `${id}--tc`]) {
+    await new Promise((res) =>
+      pm2.stop(name, (err) => {
+        if (err) logger.debug("integration.stop.skipped", { name, message: err.message });
+        else     logger.info("integration.stopped", { name });
+        res(); // never reject — one of these may legitimately not exist
+      })
+    );
+  }
+
   await pm2Save();
   pm2Disconnect();
 }
 
 export async function restartOne(id, cwd = process.cwd()) {
   await pm2Connect();
+
+  // Restart the TC if scheduled, otherwise restart the integration directly
+  const integrations = await loadRegistry(cwd);
+  const entry        = integrations.find(i => i.id === id);
+  const scheduled    = entry && !!entry.schedule;
+  const target       = scheduled ? `${id}--tc` : id;
+
   await new Promise((res, rej) =>
-    pm2.restart(id, (err) => {
+    pm2.restart(target, (err) => {
       if (err) { logger.error("integration.restart.failed", { id, message: err.message }); rej(err); }
-      else     { logger.info("integration.restarted", { id }); res(); }
+      else     { logger.info("integration.restarted", { id, target }); res(); }
     })
   );
+
   pm2Disconnect();
 }
 
@@ -93,6 +132,13 @@ export async function statusAll(cwd = process.cwd()) {
 
   pm2Disconnect();
 
+  // Show integration processes; annotate scheduled ones with TC status
+  const tcMap = Object.fromEntries(
+    list
+      .filter(p => p.name.endsWith("--tc"))
+      .map(p => [p.name.replace(/--tc$/, ""), p.pm2_env?.status ?? "-"])
+  );
+
   const rows = list
     .filter(p => ids.has(p.name))
     .map(p => ({
@@ -106,6 +152,7 @@ export async function statusAll(cwd = process.cwd()) {
       memory:      p.monit?.memory
                      ? `${Math.round(p.monit.memory / 1024 / 1024)}MB`
                      : "-",
+      tc:          tcMap[p.name] ?? "-",
     }));
 
   return rows;

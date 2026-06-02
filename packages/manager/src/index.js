@@ -16,13 +16,23 @@ const HELP = `
 integra-manager — integration supervisor
 
 Commands:
-  integra-manager start              Start all enabled integrations
-  integra-manager stop <id>          Stop a specific integration
-  integra-manager restart <id>       Restart a specific integration
-  integra-manager status             Show status of all integrations
-  integra-manager logs <id>          Tail logs for an integration
+  integra-manager start              Start all enabled integrations.
+                                     Scheduled integrations register a TrafficController
+                                     (TC) which fires them on their cron schedule.
+                                     Unscheduled integrations start directly.
+  integra-manager stop <id>          Stop a specific integration (and its TC if present)
+  integra-manager restart <id>       Restart a specific integration (or its TC if scheduled)
+  integra-manager status             Show status of all integrations (tc column = TC state)
+  integra-manager logs <id>          Tail integration logs
   integra-manager enable <id>        Enable an integration in the registry
   integra-manager disable <id>       Disable an integration in the registry
+
+Registry fields:
+  id          Unique integration identifier
+  path        Relative path to the integration directory
+  enabled     true | false
+  schedule    Optional cron expression  e.g. "*/5 * * * *"
+  max_ttl     Optional max run time in seconds before TC forcibly restarts the integration
 
 Run from the directory containing registry.json.
 `;
