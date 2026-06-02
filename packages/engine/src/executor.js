@@ -68,9 +68,9 @@ function setPath(obj, path, value) {
 /**
  * Builds the context object passed into every resolver function.
  */
-function buildCtx({ shared, resolvers, registry, meta, input, output, components }) {
+function buildCtx({ shared, resolvers, registry, meta, input, output, components, env }) {
   return {
-    env:        process.env,
+    env:        env ?? process.env,
     shared:     shared.all(),
     input:      input      ?? {},
     output:     output     ?? {},
@@ -212,7 +212,7 @@ async function executeMap(component, ctx) {
 /**
  * Executes a single step within a flow.
  */
-async function executeStep(step, ctx, registry, components) {
+async function executeStep(step, ctx, registry, components, lastIfResult = null) {
   const stepCtx = {
     ...ctx,
     meta: { ...ctx.meta, stepId: step.id ?? null },
@@ -231,9 +231,9 @@ async function executeStep(step, ctx, registry, components) {
     if (step.component) {
       result = await executeComponentStep(step, stepCtx, registry, components);
     } else if ("if" in step) {
-      result = await executeIf(step, stepCtx, registry, components);
+      result = await executeIf(step, stepCtx, registry, components, lastIfResult);
     } else if ("else" in step) {
-      result = await executeElse(step, stepCtx, registry, components);
+      result = await executeElse(step, stepCtx, registry, components, lastIfResult);
     } else if ("switch" in step) {
       result = await executeSwitch(step, stepCtx, registry, components);
     } else if ("while" in step) {
@@ -256,7 +256,10 @@ async function executeStep(step, ctx, registry, components) {
       duration_ms: Date.now() - t0,
     });
 
-    return result;
+    // Return the updated lastIfResult so executeFlow can track it across steps
+    if ("if" in step)   return !!resolve(step.if, stepCtx);
+    if ("else" in step) return null;
+    return lastIfResult;
 
   } catch (err) {
     // Signals pass through untouched
@@ -325,21 +328,17 @@ async function executeSubProcess(step, ctx, registry, components) {
   return executeProcess(proc, registry, ctx._shared, ctx.resolvers, components);
 }
 
-async function executeIf(step, ctx, registry, components) {
+async function executeIf(step, ctx, registry, components, lastIfResult) {
   const condition = resolve(step.if, ctx);
-  // Store result so subsequent else can check it
-  ctx._lastIfResult = condition;
-
   if (condition) {
     await executeFlow({ steps: step.steps, metadata: step.metadata }, ctx, registry, components);
   }
 }
 
-async function executeElse(step, ctx, registry, components) {
-  if (!ctx._lastIfResult) {
+async function executeElse(step, ctx, registry, components, lastIfResult) {
+  if (!lastIfResult) {
     await executeFlow({ steps: step.steps, metadata: step.metadata }, ctx, registry, components);
   }
-  ctx._lastIfResult = null;
 }
 
 async function executeSwitch(step, ctx, registry, components) {
@@ -375,10 +374,11 @@ async function executeFlow(flow, ctx, registry, components) {
   const parallel = flow.metadata?.parallel ?? false;
 
   if (parallel) {
-    await Promise.all(steps.map(step => executeStep(step, ctx, registry, components)));
+    await Promise.all(steps.map(step => executeStep(step, ctx, registry, components, null)));
   } else {
+    let lastIfResult = null;
     for (const step of steps) {
-      await executeStep(step, ctx, registry, components);
+      lastIfResult = await executeStep(step, ctx, registry, components, lastIfResult);
     }
   }
 }
@@ -411,8 +411,7 @@ export async function executeProcess(process, registry, shared, resolvers, paren
 
   const ctx = {
     ...buildCtx({ shared, resolvers, registry, meta, input, components }),
-    _shared:        shared,
-    _lastIfResult:  null,
+    _shared: shared,
   };
 
   try {

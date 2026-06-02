@@ -45,14 +45,9 @@ function parseArgs(argv) {
   return args;
 }
 
-const args           = parseArgs(process.argv.slice(2));
-const integrationId  = args.integration;
-const registryDir    = args.registry ? resolve(args.registry) : process.cwd();
-
-if (!integrationId) {
-  logger.error("tc.bad_args", { message: "--integration <id> is required" });
-  process.exit(1);
-}
+// Args are parsed lazily in boot() so the module can be safely imported for testing
+let integrationId = null;
+let registryDir   = null;
 
 // ── PM2 helpers ───────────────────────────────────────────────────────────────
 
@@ -93,9 +88,62 @@ function pm2Save() {
   );
 }
 
+
+// ── Pure decision function (exported for testing) ────────────────────────────
+
+/**
+ * Given a registry entry and the current PM2 process record (or null),
+ * returns one of: "start" | "kill_and_restart" | "stand_down"
+ *
+ * Pure function — no side effects, no PM2 calls, no logging.
+ * All inputs are passed explicitly; nowMs defaults to Date.now().
+ *
+ * @param {object}      entry       Registry entry for the integration
+ * @param {object|null} pm2Process  The PM2 process record, or null if not registered
+ * @param {number}      [nowMs]     Current timestamp in ms (injectable for testing)
+ * @returns {{ decision: string, reason: string, age_seconds?: number }}
+ */
+export function decide(entry, pm2Process, nowMs = Date.now()) {
+  if (!pm2Process) {
+    return { decision: "start", reason: "not registered in PM2" };
+  }
+
+  const status = pm2Process.pm2_env?.status;
+
+  if (status !== "online") {
+    return { decision: "start", reason: `status is "${status}"` };
+  }
+
+  const maxTtl    = entry.max_ttl ?? null;
+  const startedAt = pm2Process.pm2_env?.pm_uptime ?? null;
+
+  if (maxTtl !== null && startedAt !== null) {
+    const ageSeconds = Math.floor((nowMs - startedAt) / 1000);
+
+    if (ageSeconds > maxTtl) {
+      return {
+        decision:    "kill_and_restart",
+        reason:      `running for ${ageSeconds}s, exceeds max_ttl of ${maxTtl}s`,
+        age_seconds: ageSeconds,
+      };
+    }
+
+    return {
+      decision:    "stand_down",
+      reason:      `running for ${ageSeconds}s, within max_ttl of ${maxTtl}s`,
+      age_seconds: ageSeconds,
+    };
+  }
+
+  return {
+    decision: "stand_down",
+    reason:   "integration is online and no max_ttl is defined",
+  };
+}
+
 // ── Core logic ────────────────────────────────────────────────────────────────
 
-async function run() {
+async function run(integrationId, registryDir) {
   const meta = { integration: integrationId, registryDir };
 
   logger.info("tc.woke", meta);
@@ -120,59 +168,22 @@ async function run() {
     const list    = await pm2List();
     const current = list.find(p => p.name === integrationId);
 
-    if (!current) {
-      // Not registered in PM2 at all — start fresh
-      logger.info("tc.decision", { ...meta, decision: "start", reason: "not registered in PM2" });
-      await startIntegration(entry);
-      return;
-    }
+    const result = decide(entry, current ?? null);
+    const logFn  = result.decision === "kill_and_restart" ? logger.warn : logger.info;
 
-    const status = current.pm2_env?.status;
-
-    if (status !== "online") {
-      // Stopped, errored, or otherwise not running — start fresh
-      logger.info("tc.decision", { ...meta, decision: "start", reason: `status is "${status}"` });
-      await pm2Delete(integrationId);
-      await startIntegration(entry);
-      return;
-    }
-
-    // Currently online — check max_ttl
-    const maxTtl   = entry.max_ttl ?? null;
-    const startedAt = current.pm2_env?.pm_uptime ?? null;
-
-    if (maxTtl !== null && startedAt !== null) {
-      const ageSeconds = Math.floor((Date.now() - startedAt) / 1000);
-
-      if (ageSeconds > maxTtl) {
-        logger.warn("tc.decision", {
-          ...meta,
-          decision:   "kill_and_restart",
-          reason:     `running for ${ageSeconds}s, exceeds max_ttl of ${maxTtl}s`,
-          age_seconds: ageSeconds,
-          max_ttl:    maxTtl,
-        });
-        await pm2Delete(integrationId);
-        await startIntegration(entry);
-        return;
-      }
-
-      logger.info("tc.decision", {
-        ...meta,
-        decision:   "stand_down",
-        reason:     `running for ${ageSeconds}s, within max_ttl of ${maxTtl}s`,
-        age_seconds: ageSeconds,
-        max_ttl:    maxTtl,
-      });
-      return;
-    }
-
-    // Online, no max_ttl defined — always respect it
-    logger.info("tc.decision", {
+    logFn("tc.decision", {
       ...meta,
-      decision: "stand_down",
-      reason:   "integration is online and no max_ttl is defined",
+      ...result,
+      max_ttl: entry.max_ttl ?? null,
     });
+
+    if (result.decision === "start") {
+      await startIntegration(entry, registryDir);
+    } else if (result.decision === "kill_and_restart") {
+      await pm2Delete(integrationId);
+      await startIntegration(entry, registryDir);
+    }
+    // stand_down: do nothing
 
   } finally {
     await pm2Save();
@@ -181,16 +192,34 @@ async function run() {
   }
 }
 
-async function startIntegration(entry) {
+async function startIntegration(entry, registryDir) {
   const descriptor = buildIntegrationDescriptor(entry, registryDir);
   await pm2Start(descriptor);
   logger.info("tc.started", { integration: entry.id });
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Boot (only executes when run as a script, not when imported) ─────────────
 
-run().catch(err => {
-  logger.error("tc.fatal", { integration: integrationId, message: err.message, stack: err.stack });
-  pm2Disconnect();
-  process.exit(1);
-});
+function boot() {
+  const parsed       = parseArgs(process.argv.slice(2));
+  const id           = parsed.integration;
+  const regDir       = parsed.registry ? resolve(parsed.registry) : process.cwd();
+
+  if (!id) {
+    logger.error("tc.bad_args", { message: "--integration <id> is required" });
+    process.exit(1);
+  }
+
+  run(id, regDir).catch(err => {
+    logger.error("tc.fatal", { integration: id, message: err.message, stack: err.stack });
+    pm2Disconnect();
+    process.exit(1);
+  });
+}
+
+// ESM-compatible main guard
+const isMain = process.argv[1] &&
+  (process.argv[1].endsWith("trafficController.js") ||
+   import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/")));
+
+if (isMain) boot();

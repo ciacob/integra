@@ -16,7 +16,7 @@ import { resolve as resolvePath } from "path";
 import { logger } from "./logger.js";
 import { EngineError } from "./error.js";
 
-const PLACEHOLDER_RE = /^\{\{(.+)\}\}$/s;
+const PLACEHOLDER_RE = /^\{\{([^}]+(?:\}[^}]+)*)\}\}$/;
 const INTERPOLATE_RE = /\{\{([^}]+)\}\}/g;
 const FN_RE          = /^fn:(\w+)(?:\((.*)\))?$/s;
 
@@ -99,7 +99,6 @@ function resolveDotPath(path, ctx) {
     return acc[key];
   }, ctx);
 
-  logger.debug("resolver.path", { path, resolved: value !== undefined });
   return value;
 }
 
@@ -111,7 +110,6 @@ function resolveFunction(fnName, rawArgs, ctx) {
   }
 
   const args = rawArgs !== undefined ? parseArgs(rawArgs, ctx) : [];
-  logger.debug("resolver.fn", { fn: fnName, argCount: args.length });
   return fn(ctx, ...args);
 }
 

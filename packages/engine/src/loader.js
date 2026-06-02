@@ -14,9 +14,13 @@ import addFormats            from "ajv-formats";
 import { logger }            from "./logger.js";
 import { EngineError }       from "./error.js";
 
-const require    = createRequire(import.meta.url);
-const ajv        = new Ajv({ allErrors: true });
-addFormats(ajv);
+const require = createRequire(import.meta.url);
+
+function makeAjv() {
+  const ajv = new Ajv({ allErrors: true });
+  addFormats(ajv);
+  return ajv;
+}
 
 const SCHEMA_DIR = resolve(import.meta.dirname ?? new URL(".", import.meta.url).pathname, "../schemas");
 
@@ -25,7 +29,7 @@ async function loadSchema(name) {
   return JSON.parse(raw);
 }
 
-async function loadDir(baseDir, subDir, schema) {
+async function loadDir(baseDir, subDir, schema, ajv) {
   const dir      = join(baseDir, subDir);
   const validate = ajv.compile(schema);
   const registry = {};
@@ -116,10 +120,12 @@ export async function load(cwd) {
     loadSchema("process"),
   ]);
 
+  const ajv = makeAjv();
+
   const [connections, maps, processes] = await Promise.all([
-    loadDir(cwd, "connections", connectionSchema),
-    loadDir(cwd, "maps",        mapSchema),
-    loadDir(cwd, "processes",   processSchema),
+    loadDir(cwd, "connections", connectionSchema, ajv),
+    loadDir(cwd, "maps",        mapSchema,        ajv),
+    loadDir(cwd, "processes",   processSchema,    ajv),
   ]);
 
   validateReferences({ connections, maps, processes });

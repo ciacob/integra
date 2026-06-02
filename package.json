@@ -20,7 +20,11 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "transform": {}
+    "transform": {},
+    "testMatch": [
+      "**/packages/*/test/**/*.test.js",
+      "**/example-*/test/**/*.test.js"
+    ]
   },
   "license": "Apache-2.0"
 }

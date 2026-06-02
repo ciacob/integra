@@ -14,9 +14,7 @@
       "short_description": "summary",
       "description":       "description"
     },
-    "overrides": {
-      "priority": "fields.priority.name"
-    }
+    "overrides": {}
   },
   "resolver": "resolvers/itsm-maps.js"
 }
