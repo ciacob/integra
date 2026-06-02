@@ -254,6 +254,86 @@ integra run sync-incident-sn-to-jira
 
 ---
 
+## Authentication
+
+The engine resolves authentication before every HTTP request. Declare an `auth` block on any connection component — no resolver code needed for the following natively supported schemes.
+
+### Supported types
+
+**`basic`** — HTTP Basic Auth.
+```json
+"auth": {
+  "type": "basic",
+  "user": "{{env.API_USER}}",
+  "pass": "{{env.API_PASS}}"
+}
+```
+
+**`api_key`** — single header key.
+```json
+"auth": {
+  "type": "api_key",
+  "header": "X-API-Key",
+  "value": "{{env.MY_API_KEY}}"
+}
+```
+
+**`bearer`** — static Bearer token.
+```json
+"auth": {
+  "type": "bearer",
+  "token": "{{env.MY_TOKEN}}"
+}
+```
+
+**`oauth2_client_credentials`** — full token lifecycle managed by the engine: fetches on first use, persists to `storage/store.json`, refreshes automatically before expiry.
+```json
+"auth": {
+  "type":          "oauth2_client_credentials",
+  "token_url":     "{{env.TOKEN_URL}}",
+  "client_id":     "{{env.CLIENT_ID}}",
+  "client_secret": "{{env.CLIENT_SECRET}}",
+  "scope":         "api",
+  "token_buffer":  60,
+  "on_401":        "refresh_and_retry"
+}
+```
+
+`token_buffer` (default 60) is the number of seconds before true expiry at which the engine pre-emptively refreshes — preventing mid-run 401s under normal conditions. `on_401: "refresh_and_retry"` adds a single automatic retry for the edge case where a token is revoked externally.
+
+**`custom`** — defers entirely to a resolver function that returns a headers object.
+```json
+"auth": {
+  "type":     "custom",
+  "resolver": "{{fn:myAuthFn}}"
+}
+```
+
+### `authUtilities.js`
+
+The engine exposes its internal auth helpers as a public utility module. Import them in your resolver modules for consistent, tested implementations:
+
+```javascript
+import {
+  buildBasicAuthHeader,
+  buildApiKeyHeader,
+  buildBearerHeader,
+  isTokenExpired,
+  fetchClientCredentialsToken,
+  getOrRefreshToken,
+} from "@integra/engine/authUtilities";
+```
+
+Use `getOrRefreshToken` when you need OAuth CC logic inside a `custom` resolver — it handles expiry checks, fetching, and persistence in one call. All functions accept injectable dependencies (`fetchFn`, `nowMs`) so they are straightforwardly unit-testable.
+
+### Token storage
+
+Tokens are persisted to `<integration>/storage/store.json` between runs. This file is owned by the engine — do not commit it. Add `storage/` to your `.gitignore`.
+
+> **Out of scope:** OAuth 2.0 Authorization Code flow (requires a human redirect at setup time). The `custom` type and `authUtilities.js` are available for implementers who need to work around this.
+
+---
+
 ## License
 
 Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
