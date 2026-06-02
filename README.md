@@ -1,6 +1,37 @@
 # integra
 
-A configuration-driven integration engine. One instance per integration. No multitenancy. No surprises.
+A configuration-driven integration middleware engine. One instance per integration. No multitenancy. No surprises.
+
+## What is an integration middleware?
+ 
+```mermaid
+flowchart LR
+    subgraph SystemA["System A, e.g., Jira"]
+        A1[(Data &\nEvents)]
+    end
+ 
+    subgraph Middleware["Integration Middleware"]
+        direction TB
+        M1[Extract\ndata]
+        M2[Transform\ndata]
+        M3[Load /\nPush data]
+        M1 --> M2 --> M3
+    end
+ 
+    subgraph SystemB["System B, e.g., ServiceNow"]
+        B1[(Data &\nEvents)]
+    end
+ 
+    A1 -- "REST / Webhook" --> M1
+    M3 -- "REST / Webhook" --> B1
+    M3 -.->|"optional\nfeedback"| M1
+ 
+    style SystemA fill:#e8f4fd,stroke:#2980b9
+    style SystemB fill:#eafaf1,stroke:#27ae60
+    style Middleware fill:#fef9e7,stroke:#f39c12
+```
+ 
+An integration middleware sits between two or more software systems and takes care of the plumbing between them. It speaks to each system in its own language — polling or receiving data from one, transforming it into the shape the other expects, and pushing it across. It handles authentication, retries, error recovery, and logging so that neither system needs to know anything about the other. Without a middleware layer, every integration becomes a one-off script that is hard to observe, harder to maintain, and nearly impossible to reuse.
 
 ## Concept
 
@@ -13,6 +44,51 @@ Integra runs integrations as isolated processes. Each integration is a directory
 | `connection` | Talks to a REST API. Reads or writes data. |
 | `map` | Reshapes one JSON object into another. |
 | `process` | Orchestrates connections and maps via a declarative flow. |
+
+```mermaid
+flowchart TB
+    subgraph Config["Configuration — authored per integration"]
+        direction LR
+        CN["🔌 connection\ncomponents\n(connections/)"]
+        MP["🔄 map\ncomponents\n(maps/)"]
+        PR["⚙️ process\ncomponents\n(processes/)"]
+        RS["📦 resolver\nmodules\n(resolvers/)"]
+        PR -->|"orchestrates"| CN
+        PR -->|"orchestrates"| MP
+        CN & MP -->|"delegates complex\nlogic to"| RS
+    end
+ 
+    subgraph Engine["@integra/engine — stock, never changes"]
+        direction TB
+        LD["loader\nvalidates JSON\nagainst schemas"]
+        LN["linter\nchecks structure\nbefore run"]
+        RV["resolver\nexpands placeholders\n& fn calls"]
+        EX["executor\nwalks flows\n& dispatches steps"]
+        SH["shared space\nin-memory data bus\nfor the run"]
+        LG["logger\nstructured JSON\nto stdout"]
+ 
+        LD --> LN --> RV --> EX
+        EX <--> SH
+        EX --> LG
+    end
+ 
+    subgraph Runtime["Runtime — one process per integration"]
+        PM["PM2\nsupervised process"]
+        ENV[".env\ncredentials &\nconfig"]
+        LOGS["logs/\nout.log  err.log"]
+        PM --> ENV
+        PM --> LOGS
+    end
+ 
+    Config -->|"loaded & validated\nat boot"| Engine
+    Engine -->|"runs inside"| Runtime
+ 
+    style Config fill:#eaf4fb,stroke:#2980b9
+    style Engine fill:#fef9e7,stroke:#e67e22
+    style Runtime fill:#eafaf1,stroke:#27ae60
+```
+ 
+Integra's architecture rests on a clean separation between what is **generic** and what is **specific**. The engine is stock — it never changes between integrations. Everything specific to a particular integration lives in JSON component files and JavaScript resolver modules, authored once and loaded at boot. The engine validates, lints, resolves, and executes. It knows nothing about, e.g., ServiceNow or Jira. That knowledge lives entirely in the configuration layer, where it belongs.
 
 ### Value syntax
 
