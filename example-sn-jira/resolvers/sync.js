@@ -4,7 +4,7 @@
  */
 
 export function hasIncidents(ctx, output) {
-  const o        = output ?? ctx.output;
+  const o         = output ?? ctx.output;
   const incidents = o?.result;
   const has       = Array.isArray(incidents) && incidents.length > 0;
   ctx.logger.info("sync.has_incidents", { count: incidents?.length ?? 0, ...ctx.meta });
@@ -38,9 +38,32 @@ export function isHighPriority(ctx, priority) {
   return p === "1" || p === "2";
 }
 
+/**
+ * Stores a structured run summary in the shared space.
+ * Called as the process output: {{fn:syncStore('sync_result')}}
+ *
+ * Summary includes:
+ *   - completed_at       ISO timestamp of when the run finished
+ *   - incidents_fetched  total count fetched from ServiceNow
+ *   - issues_created     count of Jira issues successfully created
+ *   - issues_skipped     count that were filtered or errored
+ */
 export function syncStore(ctx, key) {
-  ctx._shared.set(key, ctx.output ?? { done: true });
-  return ctx._shared.get(key);
+  const fetched = ctx._shared.get("sn_incidents")?.result?.length ?? 0;
+  const created = ctx._shared.get("_issues_created_count") ?? 0;
+
+  const summary = {
+    completed_at:      new Date().toISOString(),
+    incidents_fetched: fetched,
+    issues_created:    created,
+    issues_skipped:    fetched - created,
+  };
+
+  ctx._shared.set(key, summary);
+
+  ctx.logger.info("sync.run_summary", { ...summary, ...ctx.meta });
+
+  return summary;
 }
 
 // --- Error handlers ---
@@ -58,7 +81,6 @@ export function handleMapError(ctx) {
     incident: ctx._shared.get("current_sn_incident")?.number ?? "unknown",
     ...ctx.meta,
   });
-  // Swallow — log and move on to the next incident
 }
 
 export function handleCreateError(ctx) {
@@ -68,5 +90,4 @@ export function handleCreateError(ctx) {
     incident: ctx._shared.get("current_sn_incident")?.number ?? "unknown",
     ...ctx.meta,
   });
-  // Swallow — log and continue
 }

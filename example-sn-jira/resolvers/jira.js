@@ -15,6 +15,9 @@ export function jiraStore(ctx, key) {
       key: ctx.output?.key ?? ctx.output?.id ?? "unknown",
       ...ctx.meta,
     });
+    // Increment the shared created counter so the run summary is accurate
+    const count = ctx._shared.get("_issues_created_count") ?? 0;
+    ctx._shared.set("_issues_created_count", count + 1);
   }
   return ctx.output;
 }

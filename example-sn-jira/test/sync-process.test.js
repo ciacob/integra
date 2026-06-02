@@ -113,6 +113,42 @@ describe("sync-incident-sn-to-jira (process)", () => {
     expect(getCount()).toBe(0);
     expect(result).toBeDefined();
   });
+
+  test("writes a structured run summary to shared space", async () => {
+    mockFetch(SN_TWO_INCIDENTS);
+    const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
+
+    const summary = result.shared.sync_result;
+    expect(summary).toBeDefined();
+    expect(summary.incidents_fetched).toBe(2);
+    expect(summary.issues_created).toBe(2);
+    expect(summary.issues_skipped).toBe(0);
+    expect(summary.completed_at).toBeTruthy();
+  });
+
+  test("run summary reflects skipped incidents when create errors are swallowed", async () => {
+    let callCount = 0;
+    global.fetch = async (url, opts) => {
+      if (url.includes("service-now.com")) {
+        return { ok: true, status: 200, json: async () => SN_TWO_INCIDENTS };
+      }
+      callCount++;
+      // First Jira call succeeds, second fails
+      if (callCount === 1) {
+        return { ok: true, status: 201, json: async () => ({ id: "1", key: "OPS-1" }) };
+      }
+      return { ok: false, status: 500, statusText: "Internal Server Error",
+               json: async () => ({}) };
+    };
+
+    const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
+    const summary = result.shared.sync_result;
+
+    expect(summary.incidents_fetched).toBe(2);
+    // One created, one errored (handleCreateError swallows it)
+    expect(summary.issues_created).toBe(1);
+    expect(summary.issues_skipped).toBe(1);
+  });
 });
 
 // ── Resolver unit tests ───────────────────────────────────────────────────────

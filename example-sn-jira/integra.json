@@ -1,6 +1,22 @@
 {
-  "id": "example-sn-jira",
-  "entry": "sync-incident-sn-to-jira",
-  "engine": "1.0.0",
-  "description": "Syncs incidents from ServiceNow to Jira"
+  "id":          "example-sn-jira",
+  "entry":       "sync-incident-sn-to-jira",
+  "engine":      "1.0.0",
+  "description": "Syncs open incidents from ServiceNow to Jira.",
+
+  "lifecycle": "scheduled",
+
+  "_lifecycle_note": [
+    "This integration is schedule-driven, not a long-running service.",
+    "It is started by a TrafficController process (registered in the manager",
+    "registry as 'example-sn-jira--tc') which fires on the cron schedule",
+    "defined in registry.json.",
+    "",
+    "Each run: fetches open incidents from ServiceNow, maps and pushes them",
+    "to Jira, writes a run summary to shared space, then exits cleanly.",
+    "",
+    "The TrafficController checks whether a previous run is still alive before",
+    "starting a new one, preventing overlapping executions. If a run exceeds",
+    "max_ttl seconds (see registry.json), the TC will kill and restart it."
+  ]
 }
