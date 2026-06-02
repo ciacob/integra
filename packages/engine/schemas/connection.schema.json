@@ -8,59 +8,66 @@
   "additionalProperties": false,
   "properties": {
     "id": {
-      "type": "string",
-      "description": "Unique identifier for this connection component."
+      "type": "string"
     },
     "short_description": {
-      "type": "string",
-      "description": "Human-readable summary of what this connection does."
+      "type": "string"
     },
     "purpose": {
       "type": "string",
-      "enum": ["read", "write", "readwrite"],
-      "description": "Whether this connection reads data, writes data, or both."
+      "enum": ["read", "write", "readwrite"]
+    },
+    "auth": {
+      "type": "object",
+      "description": "Authentication block. Resolved by the engine before each request.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["basic", "api_key", "bearer", "oauth2_client_credentials", "custom"],
+          "description": "Authentication scheme."
+        },
+        "user":          { "type": "string", "description": "basic: username or {{placeholder}}" },
+        "pass":          { "type": "string", "description": "basic: password or {{placeholder}}" },
+        "header":        { "type": "string", "description": "api_key: header name, e.g. X-API-Key" },
+        "value":         { "type": "string", "description": "api_key: key value or {{placeholder}}" },
+        "token":         { "type": "string", "description": "bearer: token value or {{placeholder}}" },
+        "token_url":     { "type": "string", "description": "oauth2_client_credentials: token endpoint" },
+        "client_id":     { "type": "string", "description": "oauth2_client_credentials: client id" },
+        "client_secret": { "type": "string", "description": "oauth2_client_credentials: client secret" },
+        "scope":         { "type": "string", "description": "oauth2_client_credentials: optional scope" },
+        "token_buffer":  {
+          "type": "number",
+          "description": "oauth2_client_credentials: seconds before expiry to pre-emptively refresh. Default 60.",
+          "default": 60
+        },
+        "on_401": {
+          "type": "string",
+          "enum": ["refresh_and_retry"],
+          "description": "oauth2_client_credentials: what to do on a 401 response."
+        },
+        "resolver": {
+          "type": "string",
+          "description": "custom: {{fn:call}} that returns a headers object."
+        }
+      },
+      "additionalProperties": false
     },
     "request": {
       "type": "object",
       "required": ["type", "endpoint"],
       "additionalProperties": false,
       "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
-        },
-        "endpoint": {
-          "type": "string",
-          "description": "URL. May contain {{placeholders}}."
-        },
-        "headers": {
-          "type": "object",
-          "additionalProperties": { "type": "string" }
-        },
-        "query": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "body": {
-          "description": "Request body. May be an object or a {{placeholder}}."
-        }
+        "type":     { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+        "endpoint": { "type": "string", "description": "URL. May contain {{placeholders}}." },
+        "headers":  { "type": "object", "additionalProperties": { "type": "string" } },
+        "query":    { "type": "object", "additionalProperties": true },
+        "body":     { "description": "Request body. May be an object or a {{placeholder}}." }
       }
     },
-    "validation": {
-      "type": "string",
-      "description": "Path to a JSON Schema file to validate the response against."
-    },
-    "filter": {
-      "type": "string",
-      "description": "A {{fn:call}} that returns true to keep the response, false to discard it."
-    },
-    "output": {
-      "type": "string",
-      "description": "A {{fn:call}} or {{placeholder}} describing where to store the response."
-    },
-    "resolver": {
-      "type": "string",
-      "description": "Relative path to the Node.js resolver module for this connection."
-    }
+    "validation": { "type": "string" },
+    "filter":     { "type": "string" },
+    "output":     { "type": "string" },
+    "resolver":   { "type": "string" }
   }
 }

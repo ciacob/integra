@@ -9,6 +9,7 @@ import { logger }                                     from "./logger.js";
 import { StepError, BreakSignal, ContinueSignal,
          buildErrorCtx }                              from "./error.js";
 import { createSharedSpace }                          from "./shared.js";
+import { resolveAuthHeaders }                         from "./authUtilities.js";
 
 let runCounter = 0;
 function generateRunId() {
@@ -68,7 +69,7 @@ function setPath(obj, path, value) {
 /**
  * Builds the context object passed into every resolver function.
  */
-function buildCtx({ shared, resolvers, registry, meta, input, output, components, env }) {
+function buildCtx({ shared, resolvers, registry, meta, input, output, components, env, storage }) {
   return {
     env:        env ?? process.env,
     shared:     shared.all(),
@@ -79,15 +80,64 @@ function buildCtx({ shared, resolvers, registry, meta, input, output, components
     meta,
     logger,
     // Allow resolvers to write to shared space
-    _shared: shared,
+    _shared:   shared,
+    // File-backed storage for tokens and other persistent state
+    _storage:  storage ?? createNullStorage(),
+  };
+}
+
+/**
+ * A no-op storage used when no storage instance is provided (e.g. in tests).
+ * get always returns undefined; set/delete are silent no-ops.
+ */
+function createNullStorage() {
+  const store = {};
+  return {
+    get:    async (k)    => store[k],
+    set:    async (k, v) => { store[k] = v; },
+    delete: async (k)    => { delete store[k]; },
+    all:    async ()     => ({ ...store }),
+    has:    async (k)    => k in store,
+  };
+}
+
+/**
+ * Builds fetch options for a connection request, merging auth headers.
+ * Pure given resolved inputs — extracted for clarity and testability.
+ */
+function buildFetchOptions(method, headers, body) {
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json", ...headers },
+  };
+  if (body && !["GET", "DELETE"].includes(method)) {
+    opts.body = JSON.stringify(body);
+  }
+  return opts;
+}
+
+/**
+ * Wraps a raw API response in the standard integra envelope.
+ * Pure.
+ */
+function wrapResponse(componentId, shortDescription, responseData) {
+  return {
+    __kind:              componentId,
+    __origin:            componentId,
+    __short_description: shortDescription ?? null,
+    data:                responseData,
+    ...(responseData.result ? { result: responseData.result } : {}),
+    ...responseData,
   };
 }
 
 /**
  * Executes an HTTP connection component.
+ * Resolves the auth block (if present) before making the request.
+ * Supports on_401: "refresh_and_retry" for OAuth token expiry edge cases.
  */
 async function executeConnection(component, ctx, registry) {
-  const { request } = component;
+  const { request, auth } = component;
 
   const endpoint = resolve(request.endpoint, ctx);
   const method   = request.type;
@@ -95,57 +145,50 @@ async function executeConnection(component, ctx, registry) {
   const query    = resolve(request.query   ?? {}, ctx);
   const body     = request.body ? resolve(request.body, ctx) : undefined;
 
+  // Resolve auth block — injects Authorization header automatically
+  const resolvedAuth = auth ? resolve(auth, ctx) : null;
+  const authHeaders  = await resolveAuthBlock(resolvedAuth, component.id, ctx);
+
   // Build URL with query params
   const url = new URL(endpoint);
   for (const [k, v] of Object.entries(query)) {
     if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
   }
 
-  const fetchOptions = {
-    method,
-    headers: { "Content-Type": "application/json", ...headers },
+  const mergedHeaders  = { ...authHeaders, ...headers };
+  const fetchOptions   = buildFetchOptions(method, mergedHeaders, body);
+
+  const doFetch = async () => {
+    logger.info("connection.request", { ...ctx.meta, method, url: url.toString() });
+    const t0  = Date.now();
+    const res = await fetch(url.toString(), fetchOptions);
+    logger.info("connection.response", { ...ctx.meta, status: res.status, duration_ms: Date.now() - t0 });
+    return res;
   };
-  if (body && !["GET", "DELETE"].includes(method)) {
-    fetchOptions.body = JSON.stringify(body);
+
+  let res = await doFetch();
+
+  // on_401 refresh-and-retry for OAuth CC edge cases (token revoked externally)
+  if (res.status === 401 && resolvedAuth?.on_401 === "refresh_and_retry" &&
+      resolvedAuth?.type === "oauth2_client_credentials") {
+    logger.warn("connection.auth_retry", { ...ctx.meta, component: component.id });
+    const storageKey = `auth_token:${component.id}`;
+    await ctx._storage.delete(storageKey);   // force fresh fetch
+    const freshHeaders = await resolveAuthBlock(resolvedAuth, component.id, ctx);
+    Object.assign(fetchOptions.headers, freshHeaders);
+    res = await doFetch();
   }
-
-  logger.info("connection.request", {
-    ...ctx.meta,
-    method,
-    url:    url.toString(),
-  });
-
-  const t0  = Date.now();
-  const res = await fetch(url.toString(), fetchOptions);
-  const dur = Date.now() - t0;
-
-  logger.info("connection.response", {
-    ...ctx.meta,
-    status:      res.status,
-    duration_ms: dur,
-  });
 
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText} from ${url}`);
   }
 
   const responseData = await res.json();
-
-  // Wrap in standard envelope
-  let output = {
-    __kind:              component.id,
-    __origin:            component.id,
-    __short_description: component.short_description ?? null,
-    data:                responseData,
-    // Flatten result for convenience if it has a 'result' key (ServiceNow style)
-    ...(responseData.result ? { result: responseData.result } : {}),
-    ...responseData,
-  };
+  let   output       = wrapResponse(component.id, component.short_description, responseData);
 
   // Apply filter if defined
   if (component.filter) {
-    const filterCtx = { ...ctx, output };
-    const keep = resolve(component.filter, filterCtx);
+    const keep = resolve(component.filter, { ...ctx, output });
     if (!keep) {
       logger.info("connection.filtered", { ...ctx.meta });
       return null;
@@ -154,11 +197,27 @@ async function executeConnection(component, ctx, registry) {
 
   // Store output if defined
   if (component.output) {
-    const outputCtx = { ...ctx, output };
-    resolve(component.output, outputCtx);
+    resolve(component.output, { ...ctx, output });
   }
 
   return output;
+}
+
+/**
+ * Resolves an auth block to a headers object.
+ * Handles the custom type by delegating to the resolver fn.
+ * Returns {} when auth is null/undefined.
+ */
+async function resolveAuthBlock(auth, connId, ctx) {
+  if (!auth) return {};
+
+  if (auth.type === "custom") {
+    // Delegate to resolver fn — must return a headers object
+    if (!auth.resolver) throw new Error(`auth.type "custom" requires auth.resolver fn call`);
+    return resolve(auth.resolver, ctx) ?? {};
+  }
+
+  return resolveAuthHeaders(auth, ctx._storage, connId) ?? {};
 }
 
 /**
@@ -317,7 +376,7 @@ async function executeComponentStep(step, ctx, registry, components) {
   } else if (maps[step.component]) {
     return executeMap(merged, freshCtx);
   } else {
-    return executeProcess(merged, registry, ctx._shared, ctx.resolvers, components);
+    return executeProcess(merged, registry, ctx._shared, ctx.resolvers, components, ctx._storage);
   }
 }
 
@@ -325,7 +384,7 @@ async function executeSubProcess(step, ctx, registry, components) {
   const { processes } = registry;
   const proc = processes[step.process];
   if (!proc) throw new Error(`Sub-process not found: ${step.process}`);
-  return executeProcess(proc, registry, ctx._shared, ctx.resolvers, components);
+  return executeProcess(proc, registry, ctx._shared, ctx.resolvers, components, ctx._storage);
 }
 
 async function executeIf(step, ctx, registry, components, lastIfResult) {
@@ -398,7 +457,7 @@ function getStepType(step) {
 /**
  * Main entry point: executes a top-level process.
  */
-export async function executeProcess(process, registry, shared, resolvers, parentComponents) {
+export async function executeProcess(process, registry, shared, resolvers, parentComponents, storage) {
   const runId     = generateRunId();
   const components = parentComponents ?? {};
   const meta      = { runId, processId: process.id, stepId: null, componentId: null };
@@ -407,10 +466,10 @@ export async function executeProcess(process, registry, shared, resolvers, paren
   const t0 = Date.now();
 
   // Resolve input
-  let input = process.input ? resolve(process.input, buildCtx({ shared, resolvers, registry, meta })) : {};
+  let input = process.input ? resolve(process.input, buildCtx({ shared, resolvers, registry, meta, storage })) : {};
 
   const ctx = {
-    ...buildCtx({ shared, resolvers, registry, meta, input, components }),
+    ...buildCtx({ shared, resolvers, registry, meta, input, components, storage }),
     _shared: shared,
   };
 

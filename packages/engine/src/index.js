@@ -11,6 +11,7 @@ import { load, collectResolverPaths } from "./loader.js";
 import { loadResolvers }          from "./resolver.js";
 import { lint }                   from "./linter.js";
 import { createSharedSpace }      from "./shared.js";
+import { createStorage }          from "./storage.js";
 import { executeProcess }         from "./executor.js";
 import { logger }                 from "./logger.js";
 import { EngineError }            from "./error.js";
@@ -32,8 +33,9 @@ export async function boot(cwd, options = {}) {
   const resolverPaths = collectResolverPaths(registry);
   const resolvers     = await loadResolvers(resolverPaths, cwd);
 
-  // Initialize shared space
-  const shared = createSharedSpace();
+  // Initialize shared space and persistent storage
+  const shared  = createSharedSpace();
+  const storage = createStorage(cwd);
 
   // Determine entry process
   const entryProcessId = options.processId ?? await resolveEntryProcess(cwd, registry);
@@ -49,7 +51,7 @@ export async function boot(cwd, options = {}) {
 
   logger.info("engine.running", { processId: entryProcessId });
 
-  const result = await executeProcess(process, registry, shared, resolvers);
+  const result = await executeProcess(process, registry, shared, resolvers, undefined, storage);
 
   logger.info("engine.done", { processId: entryProcessId });
   return result;
