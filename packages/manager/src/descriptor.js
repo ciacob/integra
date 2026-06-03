@@ -2,16 +2,24 @@
  * @integra/manager - descriptor.js
  * Builds PM2 process descriptors from integration registry entries.
  *
- * Two descriptors exist per scheduled integration:
- *   buildIntegrationDescriptor   — the integration process itself
- *   buildTrafficControllerDescriptor — the watchdog that decides when to run it
+ * Per-lifecycle PM2 strategy:
  *
- * For unscheduled integrations, only buildIntegrationDescriptor is used,
- * with autorestart: true (original behaviour).
+ *   run-once (no lifecycle field)
+ *     → single process, autorestart: false (exits cleanly after each run)
+ *       Note: for a truly unattended one-shot, the operator starts it manually.
+ *
+ *   scheduled (schedule field in registry.json)
+ *     → integration process: autorestart: false (TC owns start)
+ *     → TrafficController:   autorestart: false, cron_restart driven
+ *
+ *   listener (lifecycle: "listener" in integra.json)
+ *     → single process, autorestart: true (long-lived HTTP server, must stay up)
+ *     → no TrafficController
  */
 
 import { resolve, join } from "path";
 import { createRequire } from "module";
+import { readFile }      from "fs/promises";
 
 const require = createRequire(import.meta.url);
 
@@ -27,19 +35,41 @@ function resolveTrafficControllerBin() {
   return resolve(import.meta.dirname ?? ".", "./trafficController.js");
 }
 
-const ENGINE_BIN      = resolveEngineBin();
-const TC_BIN          = resolveTrafficControllerBin();
+const ENGINE_BIN = resolveEngineBin();
+const TC_BIN     = resolveTrafficControllerBin();
+
+/**
+ * Reads integra.json from an integration directory.
+ * Returns {} on any error — callers treat missing fields as absent.
+ */
+export async function readIntegrationManifest(integrationPath) {
+  try {
+    const raw = await readFile(join(integrationPath, "integra.json"), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Returns the effective lifecycle for an integration.
+ * "scheduled" is derived from the registry entry (has a schedule field).
+ * "listener" is declared in the integration's own integra.json.
+ * Absent means run-once.
+ */
+export function resolveLifecycle(registryEntry, manifest) {
+  if (registryEntry.schedule)             return "scheduled";
+  if (manifest?.lifecycle === "listener") return "listener";
+  return "run-once";
+}
 
 /**
  * Builds the PM2 descriptor for the integration process itself.
- *
- * When the integration is scheduled, autorestart is set to false —
- * the TrafficController is the only thing that starts it.
- * When unscheduled, autorestart remains true (supervised long-running service).
  */
-export function buildIntegrationDescriptor(integration, registryDir) {
-  const cwd        = resolve(registryDir, integration.path);
-  const scheduled  = !!integration.schedule;
+export function buildIntegrationDescriptor(integration, registryDir, lifecycle = "run-once") {
+  const cwd       = resolve(registryDir, integration.path);
+  const scheduled = lifecycle === "scheduled";
+  const listener  = lifecycle === "listener";
 
   return {
     name:                      integration.id,
@@ -49,9 +79,12 @@ export function buildIntegrationDescriptor(integration, registryDir) {
     out_file:                  join(cwd, "logs", "out.log"),
     error_file:                join(cwd, "logs", "err.log"),
     merge_logs:                false,
-    autorestart:               !scheduled,   // TC owns restarts for scheduled integrations
+    // Listeners must stay alive — restart on crash.
+    // Scheduled processes are owned by TC — never auto-restart.
+    // Run-once processes exit cleanly — no auto-restart needed.
+    autorestart:               listener,
     watch:                     false,
-    max_restarts:              scheduled ? 0 : 10,
+    max_restarts:              listener  ? 10 : 0,
     restart_delay:             5000,
     exp_backoff_restart_delay: 1000,
     node_args:                 "--experimental-vm-modules",
@@ -60,9 +93,7 @@ export function buildIntegrationDescriptor(integration, registryDir) {
 
 /**
  * Builds the PM2 descriptor for the TrafficController watchdog.
- * Only meaningful when the integration has a schedule defined.
- * PM2 restarts the TC on the cron schedule; the TC decides whether
- * to actually start the integration or stand down.
+ * Only meaningful for scheduled integrations.
  */
 export function buildTrafficControllerDescriptor(integration, registryDir) {
   const absRegistryDir = resolve(registryDir);
@@ -76,12 +107,12 @@ export function buildTrafficControllerDescriptor(integration, registryDir) {
     out_file:     join(cwd, "logs", "tc.log"),
     error_file:   join(cwd, "logs", "tc-error.log"),
     merge_logs:   false,
-    autorestart:  false,          // only cron-driven, never crash-driven
+    autorestart:  false,
     cron_restart: integration.schedule,
     watch:        false,
     node_args:    "--experimental-vm-modules",
   };
 }
 
-// Keep the old name available for any callers that haven't been updated yet
+// Backwards-compatible alias
 export const buildDescriptor = buildIntegrationDescriptor;

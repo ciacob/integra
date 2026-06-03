@@ -17,22 +17,25 @@ integra-manager — integration supervisor
 
 Commands:
   integra-manager start              Start all enabled integrations.
-                                     Scheduled integrations register a TrafficController
-                                     (TC) which fires them on their cron schedule.
-                                     Unscheduled integrations start directly.
-  integra-manager stop <id>          Stop a specific integration (and its TC if present)
-  integra-manager restart <id>       Restart a specific integration (or its TC if scheduled)
-  integra-manager status             Show status of all integrations (tc column = TC state)
+                                     Behaviour depends on lifecycle (see below).
+  integra-manager stop <id>          Stop an integration and any associated processes
+  integra-manager restart <id>       Restart an integration (targets the right process per lifecycle)
+  integra-manager status             Show all integrations — lifecycle, status, uptime, tc column
   integra-manager logs <id>          Tail integration logs
   integra-manager enable <id>        Enable an integration in the registry
-  integra-manager disable <id>       Disable an integration in the registry
+  integra-manager disable <id>       Stop then disable an integration in the registry
+
+Lifecycles (declared in integra.json, or derived from registry.json):
+  (absent)    Run-once. Starts, executes entry process, exits.
+  scheduled   TrafficController fires entry on cron schedule (schedule field in registry.json).
+  listener    Long-lived Fastify HTTP server. Fires entry on each inbound request. autorestart: true.
 
 Registry fields:
   id          Unique integration identifier
   path        Relative path to the integration directory
   enabled     true | false
-  schedule    Optional cron expression  e.g. "*/5 * * * *"
-  max_ttl     Optional max run time in seconds before TC forcibly restarts the integration
+  schedule    Cron expression — makes the integration "scheduled"  e.g. "*/5 * * * *"
+  max_ttl     Seconds before TC forcibly kills a runaway scheduled integration
 
 Run from the directory containing registry.json.
 `;

@@ -1,3 +1,6 @@
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+
 /**
  * @integra/engine - authUtilities.js
  *
@@ -173,6 +176,43 @@ export async function getOrRefreshToken(
   const fresh = await fetchClientCredentialsToken(params, fetchFn, nowMs);
   await storage.set(storageKey, fresh);
   return fresh.access_token;
+}
+
+
+// ── Inbound HMAC verification ─────────────────────────────────────────────────
+
+/**
+ * Verifies an HMAC signature sent by an inbound webhook caller.
+ * Pure — injectable crypto module for testing.
+ *
+ * @param {string|Buffer} payload      raw request body (before JSON parsing)
+ * @param {string}        signature    the value of the signature header
+ *                                     may be prefixed with "sha256=" etc.
+ * @param {string}        secret       the shared secret
+ * @param {string}        [algorithm]  default "sha256"
+ * @param {object}        [cryptoMod]  injectable — defaults to Node's crypto module
+ * @returns {boolean}
+ */
+export function verifyHmacSignature(payload, signature, secret, algorithm = "sha256", cryptoMod = null) {
+  if (!payload)   throw new Error("verifyHmacSignature: payload is required");
+  if (!signature) throw new Error("verifyHmacSignature: signature is required");
+  if (!secret)    throw new Error("verifyHmacSignature: secret is required");
+
+  const { createHmac, timingSafeEqual } = cryptoMod ?? require("crypto");
+
+  // Strip any "sha256=" style prefix (e.g. "sha256=abc123" -> "abc123")
+  const rawSig = signature.includes("=") ? signature.split("=").slice(1).join("=") : signature;
+
+  const hmac = createHmac(algorithm, secret);
+  hmac.update(typeof payload === "string" ? payload : Buffer.from(payload));
+  const digest   = hmac.digest("hex");
+
+  // Use fixed-length buffers for timing-safe comparison
+  const expected = Buffer.from(digest, "hex");
+  const received = Buffer.from(rawSig, "hex");
+
+  if (expected.length !== received.length) return false;
+  return timingSafeEqual(expected, received);
 }
 
 // ── Auth block resolution (used by the engine internally) ─────────────────────

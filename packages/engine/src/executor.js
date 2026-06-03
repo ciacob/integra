@@ -457,16 +457,17 @@ function getStepType(step) {
 /**
  * Main entry point: executes a top-level process.
  */
-export async function executeProcess(process, registry, shared, resolvers, parentComponents, storage) {
-  const runId     = generateRunId();
+export async function executeProcess(process, registry, shared, resolvers, parentComponents, storage, inputOverride) {
+  const runId      = generateRunId();
   const components = parentComponents ?? {};
-  const meta      = { runId, processId: process.id, stepId: null, componentId: null };
+  const meta       = { runId, processId: process.id, stepId: null, componentId: null };
 
   logger.info("process.started", { runId, processId: process.id });
   const t0 = Date.now();
 
-  // Resolve input
-  let input = process.input ? resolve(process.input, buildCtx({ shared, resolvers, registry, meta, storage })) : {};
+  // Resolve input — inputOverride (e.g. from listener) takes precedence over process.input
+  let input = inputOverride
+    ?? (process.input ? resolve(process.input, buildCtx({ shared, resolvers, registry, meta, storage })) : {});
 
   const ctx = {
     ...buildCtx({ shared, resolvers, registry, meta, input, components, storage }),

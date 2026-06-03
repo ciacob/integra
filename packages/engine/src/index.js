@@ -13,15 +13,35 @@ import { lint }                   from "./linter.js";
 import { createSharedSpace }      from "./shared.js";
 import { createStorage }          from "./storage.js";
 import { executeProcess }         from "./executor.js";
+import { startListener }          from "./listener.js";
 import { logger }                 from "./logger.js";
 import { EngineError }            from "./error.js";
 
 /**
+ * Reads and parses integra.json from the integration directory.
+ * Returns {} if the file is absent or unparseable.
+ */
+export async function readManifest(cwd) {
+  try {
+    const raw = await readFile(resolvePath(cwd, "integra.json"), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Boots and runs the engine from a given integration directory.
- * Used both by the CLI (integra run) and when spawned directly by PM2.
+ * Behaviour depends on the lifecycle declared in integra.json:
+ *
+ *   (absent) / "scheduled"  — run entry process once and exit
+ *   "listener"              — start Fastify server and stay alive
  */
 export async function boot(cwd, options = {}) {
   logger.info("engine.booting", { cwd });
+
+  const manifest = await readManifest(cwd);
+  const lifecycle = manifest.lifecycle ?? null;
 
   // Load and validate all component JSON files
   const registry = await load(cwd);
@@ -33,40 +53,45 @@ export async function boot(cwd, options = {}) {
   const resolverPaths = collectResolverPaths(registry);
   const resolvers     = await loadResolvers(resolverPaths, cwd);
 
-  // Initialize shared space and persistent storage
-  const shared  = createSharedSpace();
+  // Persistent storage (tokens etc.)
   const storage = createStorage(cwd);
 
-  // Determine entry process
-  const entryProcessId = options.processId ?? await resolveEntryProcess(cwd, registry);
+  if (lifecycle === "listener") {
+    // Long-lived: start the HTTP server and stay alive
+    logger.info("engine.lifecycle", { lifecycle: "listener" });
+
+    await startListener(manifest, {
+      registry,
+      resolvers,
+      storage,
+      executeProcess,
+      createSharedSpace,
+    }, cwd);
+
+    // Process stays alive — Fastify keeps the event loop open
+    logger.info("engine.listening", { integration: manifest.id });
+    return;
+  }
+
+  // Run-once (absent lifecycle or "scheduled")
+  const shared = createSharedSpace();
+  const entryProcessId = options.processId ?? manifest.entry ?? null;
 
   if (!entryProcessId) {
     throw new EngineError("No entry process specified. Set 'entry' in integra.json or pass --process.");
   }
 
-  const process = registry.processes[entryProcessId];
-  if (!process) {
+  const proc = registry.processes[entryProcessId];
+  if (!proc) {
     throw new EngineError(`Entry process not found: ${entryProcessId}`);
   }
 
-  logger.info("engine.running", { processId: entryProcessId });
+  logger.info("engine.running", { processId: entryProcessId, lifecycle: lifecycle ?? "run-once" });
 
-  const result = await executeProcess(process, registry, shared, resolvers, undefined, storage);
+  const result = await executeProcess(proc, registry, shared, resolvers, undefined, storage);
 
   logger.info("engine.done", { processId: entryProcessId });
   return result;
-}
-
-async function resolveEntryProcess(cwd, registry) {
-  try {
-    const manifestPath = resolvePath(cwd, "integra.json");
-    const raw          = await readFile(manifestPath, "utf-8");
-    const manifest     = JSON.parse(raw);
-    return manifest.entry ?? null;
-  } catch {
-    // No manifest or no entry key — caller must provide processId
-    return null;
-  }
 }
 
 // When run directly as a binary (by PM2 or integra-engine CLI)
