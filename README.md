@@ -334,6 +334,97 @@ Tokens are persisted to `<integration>/storage/store.json` between runs. This fi
 
 ---
 
+## Inbound integrations (listener lifecycle)
+
+By default integra integrations are outbound — they fetch or push data on a schedule or on demand. For systems that push *to you* (webhooks), integra supports a `listener` lifecycle: a long-lived Fastify HTTP server that fires your entry process on each valid inbound request.
+
+### Declaring a listener integration
+
+Set `lifecycle: "listener"` in `integra.json` and add an `httpServer` block:
+
+```json
+{
+  "id":         "jira-inbound",
+  "lifecycle":  "listener",
+  "entry":      "handle-jira-event",
+  "sendResult": false,
+  "httpServer": {
+    "port":   3000,
+    "host":   "0.0.0.0",
+    "path":   "/hooks/jira",
+    "method": "POST",
+    "auth": {
+      "type":   "hmac",
+      "header": "X-Hub-Signature-256",
+      "secret": "{{env.JIRA_WEBHOOK_SECRET}}"
+    },
+    "validation": "schemas/jira-event.json"
+  }
+}
+```
+
+`httpServer` holds only HTTP server configuration — port, path, auth, and an optional JSON Schema path for payload validation. The entry process and response behaviour live at the top level alongside `entry`.
+
+### How the entry process receives the request
+
+The request body is injected as the process `input`. Inside your process and resolvers, `ctx.input` (or `{{input.fieldName}}` in JSON) contains the parsed webhook payload. The process doesn't know it was triggered by a webhook — it just has input and runs normally.
+
+### Responding to the caller
+
+`sendResult: false` (default) — the listener responds `202 Accepted` immediately and fires the process in the background. Use this for fire-and-forget webhooks where the sender doesn't wait.
+
+`sendResult: true` — the listener awaits the process result and sends the HTTP response from it. The process writes to `shared.http_response`:
+
+```javascript
+// in a resolver
+export function buildResponse(ctx) {
+  ctx._shared.set("http_response", {
+    status: 200,
+    body:   { ok: true, id: ctx._shared.get("created_id") },
+  });
+}
+```
+
+If `http_response` is absent, the listener falls back to `200 OK`.
+
+### Inbound authentication
+
+Two schemes are supported natively in `httpServer.auth`:
+
+**`hmac`** — verifies the request signature using a shared secret. Standard for Jira, GitHub, and most webhook senders. The `header` field names the signature header; `algorithm` defaults to `sha256`.
+
+**`bearer_token`** — checks the `Authorization: Bearer <token>` header against a static token.
+
+For anything else, omit `auth` and handle verification in your entry process resolver.
+
+### HMAC utilities
+
+`verifyHmacSignature` is exported from `authUtilities.js` for use in custom resolver logic:
+
+```javascript
+import { verifyHmacSignature } from "@integra/engine/authUtilities";
+
+export function myCustomAuth(ctx) {
+  const raw = ctx.input.__rawBody;
+  const sig = ctx.input.__headers["x-my-signature"];
+  return verifyHmacSignature(raw, sig, ctx.env.MY_SECRET);
+}
+```
+
+### Lifecycle and PM2
+
+A listener integration runs as a long-lived supervised process (`autorestart: true`). The manager commands are lifecycle-aware — `stop`, `restart`, `enable`, and `disable` all do the right thing without any extra flags:
+
+```bash
+integra-manager stop    jira-inbound   # stops the Fastify process
+integra-manager restart jira-inbound   # restarts it (Fastify comes back up)
+integra-manager disable jira-inbound   # stops it and marks it disabled
+```
+
+A built-in `/_health` endpoint is always available at the configured port regardless of the `path` setting.
+
+---
+
 ## License
 
 Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
