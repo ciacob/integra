@@ -10,6 +10,8 @@ import { StepError, BreakSignal, ContinueSignal,
          buildErrorCtx }                              from "./error.js";
 import { createSharedSpace }                          from "./shared.js";
 import { resolveAuthHeaders }                         from "./authUtilities.js";
+import { buildMultipartBody, parseResponseMeta,
+         buildBinaryOutput }                          from "./binaryUtilities.js";
 
 let runCounter = 0;
 function generateRunId() {
@@ -102,15 +104,48 @@ function createNullStorage() {
 }
 
 /**
- * Builds fetch options for a connection request, merging auth headers.
- * Pure given resolved inputs — extracted for clarity and testability.
+ * Builds fetch options for a connection request.
+ * Branches on body_type: json (default), binary, multipart.
+ * Pure given resolved inputs.
+ *
+ * @param {string} method
+ * @param {object} headers       already-merged headers including auth
+ * @param {*}      body          resolved request.body (used for json only)
+ * @param {string} body_type     "json" | "binary" | "multipart"
+ * @param {object} binary_info   resolved binary_info block (for binary/multipart)
+ * @returns {object}  fetch options
  */
-function buildFetchOptions(method, headers, body) {
+function buildFetchOptions(method, headers, body, body_type = "json", binary_info = null) {
+  const hasBody = !["GET", "DELETE"].includes(method);
+
+  if (body_type === "binary" && binary_info && hasBody) {
+    const buffer      = binary_info.source_bytes;
+    const contentType = binary_info.content_type ?? "application/octet-stream";
+    return {
+      method,
+      headers: { ...headers, "Content-Type": contentType },
+      body:    buffer,
+    };
+  }
+
+  if (body_type === "multipart" && binary_info && hasBody) {
+    const { formData } = buildMultipartBody(
+      binary_info.fields        ?? {},
+      binary_info.source_bytes,
+      binary_info.file_field    ?? "file",
+      binary_info.file_name     ?? "file",
+      binary_info.content_type  ?? "application/octet-stream"
+    );
+    // Do NOT set Content-Type manually — fetch sets it with the boundary
+    return { method, headers: { ...headers }, body: formData };
+  }
+
+  // Default: JSON
   const opts = {
     method,
     headers: { "Content-Type": "application/json", ...headers },
   };
-  if (body && !["GET", "DELETE"].includes(method)) {
+  if (body && hasBody) {
     opts.body = JSON.stringify(body);
   }
   return opts;
@@ -138,12 +173,19 @@ function wrapResponse(componentId, shortDescription, responseData) {
  */
 async function executeConnection(component, ctx, registry) {
   const { request, auth } = component;
+  const body_type     = component.body_type     ?? "json";
+  const response_type = component.response_type ?? "json";
 
   const endpoint = resolve(request.endpoint, ctx);
   const method   = request.type;
   const headers  = resolve(request.headers ?? {}, ctx);
   const query    = resolve(request.query   ?? {}, ctx);
   const body     = request.body ? resolve(request.body, ctx) : undefined;
+
+  // Resolve binary_info block if present
+  const binary_info = component.binary_info
+    ? resolve(component.binary_info, ctx)
+    : null;
 
   // Resolve auth block — injects Authorization header automatically
   const resolvedAuth = auth ? resolve(auth, ctx) : null;
@@ -156,7 +198,7 @@ async function executeConnection(component, ctx, registry) {
   }
 
   const mergedHeaders  = { ...authHeaders, ...headers };
-  const fetchOptions   = buildFetchOptions(method, mergedHeaders, body);
+  const fetchOptions   = buildFetchOptions(method, mergedHeaders, body, body_type, binary_info);
 
   const doFetch = async () => {
     logger.info("connection.request", { ...ctx.meta, method, url: url.toString() });
@@ -183,8 +225,33 @@ async function executeConnection(component, ctx, registry) {
     throw new Error(`HTTP ${res.status} ${res.statusText} from ${url}`);
   }
 
-  const responseData = await res.json();
-  let   output       = wrapResponse(component.id, component.short_description, responseData);
+  let output;
+
+  if (response_type === "binary") {
+    // Binary response — don't parse as JSON
+    const arrayBuffer  = await res.arrayBuffer();
+    const buffer       = Buffer.from(arrayBuffer);
+    const rawHeaders   = Object.fromEntries(res.headers.entries());
+    const meta         = parseResponseMeta(rawHeaders);
+
+    // Extract idempotency key from metadata if declared
+    const idempotencyPath = binary_info?.idempotency_key ?? null;
+    const idempotencyKey  = idempotencyPath
+      ? (idempotencyPath.split(".").reduce((o, k) => o?.[k], meta) ?? null)
+      : null;
+
+    output = buildBinaryOutput(buffer, meta, idempotencyKey);
+
+    logger.info("connection.binary_response", {
+      ...ctx.meta,
+      size:            buffer.length,
+      content_type:    meta.content_type,
+      idempotency_key: idempotencyKey,
+    });
+  } else {
+    const responseData = await res.json();
+    output = wrapResponse(component.id, component.short_description, responseData);
+  }
 
   // Apply filter if defined
   if (component.filter) {

@@ -7,51 +7,79 @@
   "required": ["id", "purpose", "request"],
   "additionalProperties": false,
   "properties": {
-    "id": {
-      "type": "string"
-    },
-    "short_description": {
-      "type": "string"
-    },
+    "id":                { "type": "string" },
+    "short_description": { "type": "string" },
     "purpose": {
       "type": "string",
       "enum": ["read", "write", "readwrite"]
+    },
+    "response_type": {
+      "type": "string",
+      "enum": ["json", "binary"],
+      "default": "json",
+      "description": "Expected response body format. Default: json. Use 'binary' for file downloads."
+    },
+    "body_type": {
+      "type": "string",
+      "enum": ["json", "binary", "multipart"],
+      "default": "json",
+      "description": "Request body format. Default: json. Use 'binary' for raw file upload, 'multipart' for form-data upload."
+    },
+    "binary_info": {
+      "type": "object",
+      "description": "Required when body_type is 'binary' or 'multipart'. Configures binary transfer.",
+      "additionalProperties": false,
+      "properties": {
+        "source_bytes": {
+          "type": "string",
+          "description": "Placeholder or fn call resolving to a Buffer in shared space."
+        },
+        "content_type": {
+          "type": "string",
+          "description": "MIME type of the file being sent. May be a {{placeholder}}."
+        },
+        "file_name": {
+          "type": "string",
+          "description": "Filename to declare. May be a {{placeholder}}. Used in multipart Content-Disposition."
+        },
+        "file_field": {
+          "type": "string",
+          "description": "multipart only: the form field name for the file part. Default: 'file'.",
+          "default": "file"
+        },
+        "fields": {
+          "description": "multipart only: metadata fields to prepend before the file part. Object or {{placeholder}} resolving to an object.",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "description": "Dot-path into response metadata (ctx.output.meta) whose value uniquely identifies this binary content. Used by receiveAttachment to skip re-processing already-seen files."
+        }
+      }
     },
     "auth": {
       "type": "object",
       "description": "Authentication block. Resolved by the engine before each request.",
       "required": ["type"],
+      "additionalProperties": false,
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["basic", "api_key", "bearer", "oauth2_client_credentials", "custom"],
-          "description": "Authentication scheme."
+          "enum": ["basic", "api_key", "bearer", "oauth2_client_credentials", "custom"]
         },
-        "user":          { "type": "string", "description": "basic: username or {{placeholder}}" },
-        "pass":          { "type": "string", "description": "basic: password or {{placeholder}}" },
-        "header":        { "type": "string", "description": "api_key: header name, e.g. X-API-Key" },
-        "value":         { "type": "string", "description": "api_key: key value or {{placeholder}}" },
-        "token":         { "type": "string", "description": "bearer: token value or {{placeholder}}" },
-        "token_url":     { "type": "string", "description": "oauth2_client_credentials: token endpoint" },
-        "client_id":     { "type": "string", "description": "oauth2_client_credentials: client id" },
-        "client_secret": { "type": "string", "description": "oauth2_client_credentials: client secret" },
-        "scope":         { "type": "string", "description": "oauth2_client_credentials: optional scope" },
-        "token_buffer":  {
-          "type": "number",
-          "description": "oauth2_client_credentials: seconds before expiry to pre-emptively refresh. Default 60.",
-          "default": 60
-        },
-        "on_401": {
-          "type": "string",
-          "enum": ["refresh_and_retry"],
-          "description": "oauth2_client_credentials: what to do on a 401 response."
-        },
-        "resolver": {
-          "type": "string",
-          "description": "custom: {{fn:call}} that returns a headers object."
-        }
-      },
-      "additionalProperties": false
+        "user":          { "type": "string" },
+        "pass":          { "type": "string" },
+        "header":        { "type": "string" },
+        "value":         { "type": "string" },
+        "token":         { "type": "string" },
+        "token_url":     { "type": "string" },
+        "client_id":     { "type": "string" },
+        "client_secret": { "type": "string" },
+        "scope":         { "type": "string" },
+        "token_buffer":  { "type": "number", "default": 60 },
+        "on_401":        { "type": "string", "enum": ["refresh_and_retry"] },
+        "resolver":      { "type": "string" }
+      }
     },
     "request": {
       "type": "object",
@@ -59,10 +87,10 @@
       "additionalProperties": false,
       "properties": {
         "type":     { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] },
-        "endpoint": { "type": "string", "description": "URL. May contain {{placeholders}}." },
+        "endpoint": { "type": "string" },
         "headers":  { "type": "object", "additionalProperties": { "type": "string" } },
         "query":    { "type": "object", "additionalProperties": true },
-        "body":     { "description": "Request body. May be an object or a {{placeholder}}." }
+        "body":     { "description": "Ignored when body_type is 'binary' or 'multipart'." }
       }
     },
     "validation": { "type": "string" },
