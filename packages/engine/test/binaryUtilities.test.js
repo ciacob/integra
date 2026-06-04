@@ -25,50 +25,36 @@ import {
 // ── detectMimeType ────────────────────────────────────────────────────────────
 
 describe("detectMimeType", () => {
-  test("detects JPEG from magic bytes", () => {
-    const buf = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00]);
-    expect(detectMimeType(buf)).toBe("image/jpeg");
+  test("detects JPEG from magic bytes", async () => {
+    const buf = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+    expect(await detectMimeType(buf)).toBe("image/jpeg");
   });
 
-  test("detects PNG from magic bytes", () => {
-    const buf = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D]);
-    expect(detectMimeType(buf)).toBe("image/png");
+  test("detects PNG from magic bytes", async () => {
+    // PNG signature (8 bytes) + start of IHDR chunk — minimum for file-type to recognise
+    const buf = Buffer.from([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  // PNG signature
+      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,  // IHDR chunk header
+    ]);
+    expect(await detectMimeType(buf)).toBe("image/png");
   });
 
-  test("detects PDF from magic bytes", () => {
-    const buf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D]);
-    expect(detectMimeType(buf)).toBe("application/pdf");
+  test("detects PDF from magic bytes", async () => {
+    const buf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31]);
+    expect(await detectMimeType(buf)).toBe("application/pdf");
   });
 
-  test("falls back to extension when magic bytes don't match", () => {
-    const buf = Buffer.from([0x00, 0x00, 0x00, 0x00]);
-    expect(detectMimeType(buf, "report.xlsx")).toBe(
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
+  test("returns octet-stream for unrecognised bytes", async () => {
+    const buf = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+    expect(await detectMimeType(buf)).toBe("application/octet-stream");
   });
 
-  test("returns octet-stream when neither matches", () => {
-    const buf = Buffer.from([0x00, 0x01, 0x02, 0x03]);
-    expect(detectMimeType(buf, "unknown.xyz")).toBe("application/octet-stream");
+  test("throws when buffer is null", async () => {
+    await expect(detectMimeType(null)).rejects.toThrow("buffer is required");
   });
 
-  test("works with null buffer (extension only)", () => {
-    expect(detectMimeType(null, "file.pdf")).toBe("application/pdf");
-  });
-
-  test("works with null filename (magic bytes only)", () => {
-    const buf = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x00]);
-    expect(detectMimeType(buf, null)).toBe("image/png");
-  });
-
-  test("magic bytes take precedence over extension", () => {
-    // PNG magic bytes but .pdf extension
-    const buf = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x00]);
-    expect(detectMimeType(buf, "file.pdf")).toBe("image/png");
-  });
-
-  test("is case-insensitive for extension", () => {
-    expect(detectMimeType(null, "IMAGE.PNG")).toBe("image/png");
+  test("throws when buffer is undefined", async () => {
+    await expect(detectMimeType(undefined)).rejects.toThrow("buffer is required");
   });
 });
 
@@ -425,9 +411,12 @@ describe("prepareAttachmentUpload", () => {
 
   test("detects MIME from PNG magic bytes", async () => {
     const ctx = await makeFileCtx();
-    // Write real PNG magic bytes
     const { writeFile } = await import("fs/promises");
-    await writeFile(ctx.input.file_path, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x00, 0x00]));
+    // PNG signature + IHDR chunk start — minimum for file-type to recognise
+    await writeFile(ctx.input.file_path, Buffer.from([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+      0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+    ]));
     const result = await prepareAttachmentUpload(ctx);
     expect(result.content_type).toBe("image/png");
   });

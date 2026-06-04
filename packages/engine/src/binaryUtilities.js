@@ -25,64 +25,22 @@
  *   buildBinaryOutput        — pure: builds the ctx.output shape for binary responses
  */
 
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+import { fileTypeFromBuffer } from "file-type";
 
-// ── MIME type helpers ─────────────────────────────────────────────────────────
-
-const EXTENSION_MIME = {
-  ".jpg":  "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png":  "image/png",
-  ".gif":  "image/gif",
-  ".webp": "image/webp",
-  ".pdf":  "application/pdf",
-  ".zip":  "application/zip",
-  ".txt":  "text/plain",
-  ".csv":  "text/csv",
-  ".json": "application/json",
-  ".xml":  "application/xml",
-  ".doc":  "application/msword",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xls":  "application/vnd.ms-excel",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
-
-// Magic byte signatures for common formats
-const MAGIC_BYTES = [
-  { bytes: [0xFF, 0xD8, 0xFF],             mime: "image/jpeg"       },
-  { bytes: [0x89, 0x50, 0x4E, 0x47],       mime: "image/png"        },
-  { bytes: [0x47, 0x49, 0x46],             mime: "image/gif"        },
-  { bytes: [0x52, 0x49, 0x46, 0x46],       mime: "image/webp"       }, // also wav/avi, but webp most common
-  { bytes: [0x25, 0x50, 0x44, 0x46],       mime: "application/pdf"  },
-  { bytes: [0x50, 0x4B, 0x03, 0x04],       mime: "application/zip"  },
-];
+// ── MIME type detection ───────────────────────────────────────────────────────
 
 /**
- * Best-effort MIME type detection from magic bytes and/or filename extension.
- * Magic bytes take precedence over extension.
- * Returns "application/octet-stream" when neither matches.
- * Pure.
+ * Detects the MIME type of a buffer using magic bytes via the file-type library.
+ * Returns "application/octet-stream" for unrecognised formats.
+ * Throws when buffer is absent — a buffer is always required for detection.
  *
- * @param {Buffer|null}  buffer    file bytes (or null to skip magic byte check)
- * @param {string|null}  filename  filename with extension (or null)
- * @returns {string}
+ * @param {Buffer} buffer
+ * @returns {Promise<string>}
  */
-export function detectMimeType(buffer = null, filename = null) {
-  // Try magic bytes first
-  if (buffer && buffer.length >= 4) {
-    for (const { bytes, mime } of MAGIC_BYTES) {
-      if (bytes.every((b, i) => buffer[i] === b)) return mime;
-    }
-  }
-
-  // Fall back to extension
-  if (filename) {
-    const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
-    if (EXTENSION_MIME[ext]) return EXTENSION_MIME[ext];
-  }
-
-  return "application/octet-stream";
+export async function detectMimeType(buffer) {
+  if (!buffer) throw new Error("detectMimeType: buffer is required");
+  const result = await fileTypeFromBuffer(buffer);
+  return result?.mime ?? "application/octet-stream";
 }
 
 // ── Response metadata parsing ─────────────────────────────────────────────────
@@ -329,7 +287,7 @@ export async function receiveAttachment(ctx, options = {}) {
   }
 
   const fileName  = meta?.file_name ?? `attachment_${Date.now()}`;
-  const mimeType  = meta?.content_type ?? detectMimeType(buffer, fileName);
+  const mimeType  = meta?.content_type ?? await detectMimeType(buffer);
   const filePath  = await writeBufferToDisk(buffer, dir, fileName, { overwrite }, fsMod);
 
   const record = {
@@ -390,7 +348,7 @@ export async function prepareAttachmentUpload(ctx, options = {}) {
   const { basename } = await import("path");
   const resolvedName = file_name ?? basename(file_path);
   const buffer       = await readFileAsBuffer(file_path, fsMod);
-  const contentType  = mime_type ?? detectMimeType(buffer, resolvedName);
+  const contentType  = mime_type ?? await detectMimeType(buffer);
 
   ctx.logger.info("binary.attachment_prepared", {
     file_name: resolvedName,
