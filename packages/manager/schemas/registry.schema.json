@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id":     "https://integra.dev/schemas/registry.json",
+  "title":   "registry.json — Integration Registry",
+  "type":    "object",
+  "required": ["integrations"],
+  "additionalProperties": false,
+  "properties": {
+    "integrations": {
+      "type":        "array",
+      "description": "List of integration instances known to the manager.",
+      "items":       { "$ref": "#/$defs/integration" }
+    }
+  },
+  "$defs": {
+    "integration": {
+      "type":    "object",
+      "required": ["id", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type":        "string",
+          "minLength":   1,
+          "description": "Unique identifier. Must match the id in the integration's integra.json."
+        },
+        "path": {
+          "type":        "string",
+          "minLength":   1,
+          "description": "Relative path from the registry directory to the integration directory."
+        },
+        "enabled": {
+          "type":        "boolean",
+          "description": "Whether this integration should be started by the manager. Default: true."
+        },
+        "description": {
+          "type":        "string",
+          "description": "Human-readable description."
+        },
+        "schedule": {
+          "type":        "string",
+          "description": "Cron expression. Presence makes this a scheduled integration. e.g. '*/5 * * * *'"
+        },
+        "max_ttl": {
+          "type":        "integer",
+          "minimum":     1,
+          "description": "Maximum run time in seconds before the TrafficController forcibly restarts the integration."
+        }
+      }
+    }
+  }
+}

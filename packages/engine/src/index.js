@@ -7,7 +7,8 @@
 
 import { resolve as resolvePath } from "path";
 import { readFile }               from "fs/promises";
-import { load, collectResolverPaths } from "./loader.js";
+import { load, collectResolverPaths,
+                validateManifest }        from "./loader.js";
 import { loadResolvers }          from "./resolver.js";
 import { lint }                   from "./linter.js";
 import { createSharedSpace }      from "./shared.js";
@@ -41,6 +42,10 @@ export async function boot(cwd, options = {}) {
   logger.info("engine.booting", { cwd });
 
   const manifest = await readManifest(cwd);
+
+  // Validate integra.json against its schema before doing anything else
+  await validateManifest(manifest, cwd);
+
   const lifecycle = manifest.lifecycle ?? null;
 
   // Load and validate all component JSON files

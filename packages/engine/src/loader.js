@@ -29,6 +29,24 @@ async function loadSchema(name) {
   return JSON.parse(raw);
 }
 
+/**
+ * Validates an integra.json manifest object against its schema.
+ * Throws an EngineError with clear messages if validation fails.
+ */
+export async function validateManifest(manifest, cwd) {
+  const schema   = await loadSchema("manifest");
+  const ajv      = makeAjv();
+  const validate = ajv.compile(schema);
+  const valid    = validate(manifest);
+
+  if (!valid) {
+    const errors = validate.errors.map(e => `  ${e.instancePath || "(root)"} ${e.message}`).join("\n");
+    throw new EngineError(`integra.json validation failed:\n${errors}`);
+  }
+
+  logger.debug("loader.manifest_valid", { id: manifest.id });
+}
+
 async function loadDir(baseDir, subDir, schema, ajv) {
   const dir      = join(baseDir, subDir);
   const validate = ajv.compile(schema);

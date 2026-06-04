@@ -1,21 +1,31 @@
 /**
  * @integra/cli - commands/validate.js
- * Runs schema validation and the structural linter without executing anything.
+ * Validates integra.json, all component JSON files, and structural correctness.
+ * No execution — safe to run at any time.
  */
 
-import { load }   from "@integra/engine/loader";
-import { lint }   from "@integra/engine/linter";
-import { logger } from "@integra/engine/logger";
+import { load, validateManifest } from "@integra/engine/loader";
+import { lint }                   from "@integra/engine/linter";
+import { readManifest }           from "@integra/engine";
 
 export async function validate([]) {
   const cwd = process.cwd();
   console.log(`\nValidating integration at: ${cwd}\n`);
 
-  const registry = await load(cwd);
-  lint(registry.processes);
+  // 1. integra.json
+  const manifest = await readManifest(cwd);
+  await validateManifest(manifest, cwd);
+  console.log(`  ✓ integra.json`);
 
-  console.log(`\n✓ Validation passed.\n`);
-  console.log(`  Connections : ${Object.keys(registry.connections).length}`);
-  console.log(`  Maps        : ${Object.keys(registry.maps).length}`);
-  console.log(`  Processes   : ${Object.keys(registry.processes).length}\n`);
+  // 2. Component JSON files (connections, maps, processes) + cross-references
+  const registry = await load(cwd);
+  console.log(`  ✓ connections  (${Object.keys(registry.connections).length})`);
+  console.log(`  ✓ maps         (${Object.keys(registry.maps).length})`);
+  console.log(`  ✓ processes    (${Object.keys(registry.processes).length})`);
+
+  // 3. Structural linting (loose else, break outside while, etc.)
+  lint(registry.processes);
+  console.log(`  ✓ process structure`);
+
+  console.log(`\n✓ All checks passed.\n`);
 }

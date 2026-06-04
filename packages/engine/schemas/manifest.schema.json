@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id":     "https://integra.dev/schemas/manifest.json",
+  "title":   "integra.json — Integration Manifest",
+  "type":    "object",
+  "required": ["id", "entry"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type":        "string",
+      "minLength":   1,
+      "description": "Unique identifier for this integration instance."
+    },
+    "entry": {
+      "type":        ["string", "null"],
+      "description": "ID of the process component to run as the entry point."
+    },
+    "engine": {
+      "type":        "string",
+      "description": "Engine version this integration was authored against."
+    },
+    "description": {
+      "type":        "string",
+      "description": "Human-readable description of what this integration does."
+    },
+    "lifecycle": {
+      "type":        "string",
+      "enum":        ["scheduled", "listener"],
+      "description": "Execution model. Absent means run-once."
+    },
+    "sendResult": {
+      "type":        "boolean",
+      "description": "listener only: whether to await the process result and send it as the HTTP response."
+    },
+    "httpServer": {
+      "type":        "object",
+      "description": "listener only: HTTP server configuration.",
+      "required":    ["port", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type":        ["integer", "string"],
+          "description": "Port to listen on. May be a {{placeholder}}."
+        },
+        "host": {
+          "type":        "string",
+          "description": "Host to bind to. Default: 0.0.0.0."
+        },
+        "path": {
+          "type":        "string",
+          "description": "URL path to handle. e.g. /hooks/jira"
+        },
+        "method": {
+          "type":        "string",
+          "enum":        ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "description": "HTTP method to accept. Default: POST."
+        },
+        "auth": {
+          "type":        "object",
+          "description": "Inbound authentication configuration.",
+          "required":    ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type":      { "type": "string", "enum": ["hmac", "bearer_token"] },
+            "header":    { "type": "string" },
+            "secret":    { "type": "string" },
+            "algorithm": { "type": "string" },
+            "token":     { "type": "string" }
+          }
+        },
+        "validation": {
+          "type":        "string",
+          "description": "Relative path to a JSON Schema file for payload validation."
+        },
+        "queryValidation": {
+          "type":        "string",
+          "description": "Relative path to a JSON Schema file for query parameter validation."
+        }
+      }
+    },
+    "created": {
+      "type":        "string",
+      "description": "ISO timestamp of when this integration was scaffolded."
+    },
+    "_sendResult_note":  { "type": "string" },
+    "_lifecycle_note":   { "type": ["string", "array"] }
+  },
+  "if": {
+    "properties": { "lifecycle": { "const": "listener" } },
+    "required":   ["lifecycle"]
+  },
+  "then": {
+    "required": ["httpServer"]
+  }
+}
