@@ -425,6 +425,62 @@ A built-in `/_health` endpoint is always available at the configured port regard
 
 ---
 
+## Query parameters
+
+### Outbound connections
+
+Declare a `query` object inside `request`. Every value is resolved through the normal placeholder and function-call syntax before being appended to the URL as query string parameters.
+
+```json
+"request": {
+  "type":     "GET",
+  "endpoint": "{{env.SN_BASE_URL}}/api/now/table/incident",
+  "query": {
+    "sysparm_limit":  "10",
+    "sysparm_fields": "number,state,priority",
+    "state":          "{{input.state}}",
+    "tag":            "{{fn:buildTagFilter}}"
+  }
+}
+```
+
+Null and undefined values are skipped automatically. All other values are coerced to strings. For multi-value parameters (e.g. `field=a&field=b`), build the string in a resolver function and pass a single value.
+
+### Inbound listener
+
+When a webhook sender appends query parameters to the URL, the listener exposes them in the process input under `input.query`. The full inbound input envelope is:
+
+```
+input.payload   — parsed JSON body
+input.query     — query string parameters  ← new
+input.headers   — all request headers
+input.rawBody   — raw body bytes (Buffer), useful for custom HMAC verification
+```
+
+Access them in process JSON or resolver functions as usual:
+
+```json
+"if": "{{fn:isValidSource(input.query.source)}}"
+```
+
+```javascript
+export function isValidSource(ctx, source) {
+  return source === "jira-prod";
+}
+```
+
+Optionally validate query params against a JSON Schema before the process fires — the listener responds `400` if validation fails, the process never runs:
+
+```json
+"httpServer": {
+  "path":            "/hooks/jira",
+  "validation":      "schemas/jira-body.json",
+  "queryValidation": "schemas/jira-query.json"
+}
+```
+
+---
+
 ## License
 
 Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
