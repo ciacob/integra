@@ -18,7 +18,8 @@
     "./error": "./src/error.js",
     "./authUtilities": "./src/authUtilities.js",
     "./storage": "./src/storage.js",
-    "./binaryUtilities": "./src/binaryUtilities.js"
+    "./binaryUtilities": "./src/binaryUtilities.js",
+    "./loadEnvFile": "./src/index.js"
   },
   "dependencies": {
     "ajv": "^8.12.0",

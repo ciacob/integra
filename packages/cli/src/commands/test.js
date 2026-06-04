@@ -1,0 +1,315 @@
+/**
+ * @integra/cli - commands/test.js
+ *
+ * Mock-test runner for integra integrations.
+ * No real HTTP calls are ever made — all outbound connections are intercepted
+ * and answered with fixture files, all inbound webhooks are fired from fixtures.
+ *
+ * Usage:
+ *   integra test
+ *   integra test --env .env.dev
+ *
+ * Lifecycle detection:
+ *   listener  → start real Fastify, fire each webhooks/ fixture at it, collect results
+ *   otherwise → run entry process with responses/ fixtures intercepting outbound calls
+ *
+ * Fixture resolution:
+ *   One response fixture    → used for all outbound calls
+ *   Multiple fixtures       → .fixture-map.json required (URL → filename)
+ *   No response fixtures    → error (outbound integration must have at least one)
+ *   No webhook fixtures     → error (listener integration must have at least one)
+ */
+
+import { readdir, readFile, stat }  from "fs/promises";
+import { resolve, join, basename }  from "path";
+import { existsSync }               from "fs";
+import { createHmac }               from "crypto";
+import { parseArgs }                from "../args.js";
+
+const FIXTURES_DIR    = "test/fixtures";
+const WEBHOOKS_DIR    = "test/fixtures/webhooks";
+const RESPONSES_DIR   = "test/fixtures/responses";
+const DISABLED_DIR    = "test/fixtures/.disabled";
+const FIXTURE_MAP     = "test/fixtures/.fixture-map.json";
+
+// ── Pure helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Lists all non-.gitkeep files in a directory, excluding .disabled/ children.
+ * Returns full absolute paths.
+ */
+async function listFixtures(dir) {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries
+      .filter(e => e.isFile() && e.name !== ".gitkeep")
+      .map(e => join(dir, e.name));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Loads .fixture-map.json if present. Returns null if absent.
+ * Throws with a clear message if the file exists but is malformed.
+ */
+async function loadFixtureMap(cwd) {
+  const mapPath = resolve(cwd, FIXTURE_MAP);
+  if (!existsSync(mapPath)) return null;
+  try {
+    const raw = await readFile(mapPath, "utf-8");
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`.fixture-map.json is not valid JSON: ${err.message}`);
+  }
+}
+
+/**
+ * Resolves the fixture file to use for a given URL.
+ * Pure — takes the fixture map and file list, returns a path or throws.
+ */
+export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn = existsSync) {
+  if (responseFiles.length === 0) {
+    throw new Error(
+      `No response fixtures found in ${RESPONSES_DIR}.\n` +
+      `Add at least one .json file there before running integra test.`
+    );
+  }
+
+  if (responseFiles.length === 1) {
+    return responseFiles[0];
+  }
+
+  // Multiple fixtures — map is required
+  if (!fixtureMap) {
+    throw new Error(
+      `Multiple response fixtures found but no .fixture-map.json.\n` +
+      `Create ${FIXTURE_MAP} to map each outbound URL to its fixture file.`
+    );
+  }
+
+  // Find matching entry — support exact match and prefix match
+  const match = Object.entries(fixtureMap).find(([pattern]) => {
+    try {
+      // Treat pattern as a URL prefix
+      return url.startsWith(pattern);
+    } catch {
+      return url === pattern;
+    }
+  });
+
+  if (!match) {
+    throw new Error(
+      `No fixture mapped for URL: ${url}\n` +
+      `Add an entry to .fixture-map.json for this URL.`
+    );
+  }
+
+  const fixturePath = resolve(process.cwd(), match[1]);
+  if (!existsFn(fixturePath)) {
+    throw new Error(
+      `.fixture-map.json references "${match[1]}" but the file does not exist.`
+    );
+  }
+
+  return fixturePath;
+}
+
+/**
+ * Builds a mock fetch function that intercepts all outbound calls
+ * and returns fixture bodies. Throws on any unmapped URL.
+ */
+function buildMockFetch(fixtureMap, responseFiles, cwd) {
+  return async (url, opts) => {
+    const fixturePath = resolveResponseFixture(url, fixtureMap, responseFiles.map(f => resolve(cwd, f)));
+    const raw         = await readFile(fixturePath, "utf-8");
+    const body        = JSON.parse(raw);
+
+    console.log(`  [mock] ${opts?.method ?? "GET"} ${url}`);
+    console.log(`         → ${basename(fixturePath)}`);
+
+    return {
+      ok:     true,
+      status: body._mockStatus ?? 200,
+      json:   async () => {
+        // Strip private _mockStatus key before returning
+        const { _mockStatus, ...rest } = body;
+        return rest;
+      },
+      text:       async () => raw,
+      arrayBuffer: async () => Buffer.from(raw).buffer,
+      headers:    new Headers(body._mockHeaders ?? {}),
+    };
+  };
+}
+
+// ── Outbound test runner ───────────────────────────────────────────────────────
+
+async function runOutboundTest(cwd, envFile) {
+  const { boot }            = await import("@integra/engine");
+  const { readManifest }    = await import("@integra/engine");
+
+  const manifest      = await readManifest(cwd);
+  const entryProcessId = manifest.entry;
+  if (!entryProcessId) throw new Error("No entry process defined in integra.json");
+
+  const responseFiles = await listFixtures(resolve(cwd, RESPONSES_DIR));
+  const fixtureMap    = await loadFixtureMap(cwd);
+
+  if (responseFiles.length === 0) {
+    throw new Error(
+      `No response fixtures found.\n` +
+      `Add at least one .json file to ${RESPONSES_DIR}/ before running integra test.`
+    );
+  }
+
+  console.log(`\n  Response fixtures: ${responseFiles.length}`);
+  responseFiles.forEach(f => console.log(`    ${basename(f)}`));
+  if (fixtureMap) {
+    console.log(`  Fixture map: .fixture-map.json (${Object.keys(fixtureMap).length} entries)`);
+  }
+  console.log();
+
+  // Install mock fetch
+  const realFetch   = globalThis.fetch;
+  globalThis.fetch  = buildMockFetch(fixtureMap, responseFiles, cwd);
+
+  try {
+    const result = await boot(cwd, { processId: entryProcessId, envFile });
+
+    console.log(`\n  ✓ Process completed.`);
+
+    if (process.env.LOG_LEVEL === "debug") {
+      console.log("\n  Shared space:");
+      console.log(JSON.stringify(result.shared, null, 2));
+    }
+
+    return { ok: true };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// ── Inbound (listener) test runner ────────────────────────────────────────────
+
+async function runListenerTest(cwd, envFile) {
+  const { boot }          = await import("@integra/engine");
+  const { readManifest }  = await import("@integra/engine");
+
+  const manifest      = await readManifest(cwd);
+  const webhookFiles  = await listFixtures(resolve(cwd, WEBHOOKS_DIR));
+  const responseFiles = await listFixtures(resolve(cwd, RESPONSES_DIR));
+  const fixtureMap    = await loadFixtureMap(cwd);
+
+  if (webhookFiles.length === 0) {
+    throw new Error(
+      `No webhook fixtures found.\n` +
+      `Add at least one .json file to ${WEBHOOKS_DIR}/ before running integra test.`
+    );
+  }
+
+  // If the listener process also makes outbound calls, response fixtures are needed
+  const hasOutbound = responseFiles.length > 0;
+
+  console.log(`\n  Webhook fixtures : ${webhookFiles.length}`);
+  webhookFiles.forEach(f => console.log(`    ${basename(f)}`));
+  if (hasOutbound) {
+    console.log(`  Response fixtures: ${responseFiles.length}`);
+    responseFiles.forEach(f => console.log(`    ${basename(f)}`));
+  }
+  console.log();
+
+  // Install mock fetch for outbound calls ONLY — real fetch used for listener calls
+  const realFetch  = globalThis.fetch;
+  if (hasOutbound) {
+    globalThis.fetch = buildMockFetch(fixtureMap, responseFiles, cwd);
+  }
+
+  // Use a test port to avoid clashing with any running listener
+  const TEST_PORT = (manifest.httpServer?.port ?? 3100) + 1000;
+
+  let fastify;
+  try {
+    fastify = await boot(cwd, { listenerPort: TEST_PORT, envFile });
+
+    const secret     = manifest.httpServer?.auth?.secret
+      ? manifest.httpServer.auth.secret.replace(/\{\{env\.([^}]+)\}\}/, (_, k) => process.env[k] ?? "")
+      : null;
+    const path       = manifest.httpServer?.path ?? "/";
+    const listenUrl  = `http://localhost:${TEST_PORT}${path}`;
+    const results    = [];
+
+    for (const fixturePath of webhookFiles) {
+      const name  = basename(fixturePath);
+      const raw   = await readFile(fixturePath, "utf-8");
+      const body  = raw; // send as-is — preserve exact bytes for HMAC
+
+      const headers = { "Content-Type": "application/json" };
+      if (secret) {
+        headers["X-Hub-Signature-256"] =
+          "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+      }
+
+      console.log(`  → Firing: ${name}`);
+
+      const res      = await realFetch(listenUrl, { method: "POST", headers, body });
+      const resText  = await res.text();
+      let   resBody;
+      try { resBody = JSON.parse(resText); } catch { resBody = resText; }
+
+      const ok = res.status >= 200 && res.status < 300;
+      console.log(`    ${ok ? "✓" : "✗"} HTTP ${res.status}`);
+      if (!ok || process.env.LOG_LEVEL === "debug") {
+        console.log(`    ${JSON.stringify(resBody)}`);
+      }
+
+      results.push({ fixture: name, status: res.status, ok, body: resBody });
+    }
+
+    const failed = results.filter(r => !r.ok);
+    if (failed.length) {
+      console.log(`\n  ✗ ${failed.length} webhook(s) returned non-2xx responses.`);
+      return { ok: false, results };
+    }
+
+    console.log(`\n  ✓ All ${results.length} webhook(s) processed successfully.`);
+    return { ok: true, results };
+
+  } finally {
+    if (fastify?.close) await fastify.close();
+    globalThis.fetch = realFetch;
+  }
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+export async function test(argv) {
+  const { flags }  = parseArgs(argv);
+  const cwd        = process.cwd();
+
+  // Resolve env file
+  const envFileName = flags.env ?? ".env";
+  const envFile     = resolve(cwd, envFileName);
+  if (!existsSync(envFile)) {
+    throw new Error(`Env file not found: ${envFile}`);
+  }
+
+  // Load env early so manifest placeholders resolve correctly
+  const { loadEnvFile } = await import("@integra/engine");
+  await loadEnvFile(envFile);
+
+  const { readManifest } = await import("@integra/engine");
+  const manifest = await readManifest(cwd);
+  const lifecycle = manifest.lifecycle ?? null;
+
+  console.log(`\nMock-testing integration: ${manifest.id ?? cwd}`);
+  if (flags.env) console.log(`Using env: ${envFileName}`);
+
+  if (lifecycle === "listener") {
+    const result = await runListenerTest(cwd, envFile);
+    if (!result.ok) process.exit(1);
+  } else {
+    const result = await runOutboundTest(cwd, envFile);
+    if (!result.ok) process.exit(1);
+  }
+}

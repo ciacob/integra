@@ -7,10 +7,11 @@
 import { init }     from "./commands/init.js";
 import { validate } from "./commands/validate.js";
 import { run }      from "./commands/run.js";
+import { test }     from "./commands/test.js";
 
 const [,, command, ...args] = process.argv;
 
-const commands = { init, validate, run };
+const commands = { init, validate, run, test };
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
@@ -20,6 +21,9 @@ Commands:
   integra init <name>              Scaffold a new integration environment
   integra validate                 Validate components and processes (no execution)
   integra run <process-id>         Execute a process in the current directory
+  integra run <process-id> --env <file>  Run with a specific env file (default: .env)
+  integra test                     Mock-test the integration using fixture files
+  integra test --env <file>        Mock-test with a specific env file
 
 Options:
   --help, -h                       Show this help message

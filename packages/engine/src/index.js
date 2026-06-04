@@ -19,6 +19,28 @@ import { logger }                 from "./logger.js";
 import { EngineError }            from "./error.js";
 
 /**
+ * Loads a .env file into process.env.
+ * Each non-comment, non-empty line of the form KEY=VALUE is parsed.
+ * Existing process.env values are overwritten.
+ * Throws if the file does not exist (so mis-spelled --env paths fail loudly).
+ *
+ * @param {string} envPath  absolute path to the .env file
+ */
+export async function loadEnvFile(envPath) {
+  const raw = await readFile(envPath, "utf-8");   // throws ENOENT if absent
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 0) continue;
+    const key   = trimmed.slice(0, eqIdx).trim();
+    const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+    process.env[key] = value;
+  }
+  logger.debug("engine.env_loaded", { path: envPath });
+}
+
+/**
  * Reads and parses integra.json from the integration directory.
  * Returns {} if the file is absent or unparseable.
  */
@@ -40,6 +62,12 @@ export async function readManifest(cwd) {
  */
 export async function boot(cwd, options = {}) {
   logger.info("engine.booting", { cwd });
+
+  // Load a custom .env file if specified — must happen before reading any env vars
+  if (options.envFile) {
+    await loadEnvFile(options.envFile);
+    logger.info("engine.env_file", { path: options.envFile });
+  }
 
   const manifest = await readManifest(cwd);
 

@@ -16,7 +16,8 @@ const HELP = `
 integra-manager — integration supervisor
 
 Commands:
-  integra-manager start              Start all enabled integrations.
+  integra-manager start [--env file] Start all enabled integrations.
+                                     --env: env file to use (default: .env per integration).
                                      Behaviour depends on lifecycle (see below).
   integra-manager stop <id>          Stop an integration and any associated processes
   integra-manager restart <id>       Restart an integration (targets the right process per lifecycle)
@@ -49,10 +50,14 @@ async function main() {
   const cwd = process.cwd();
 
   switch (command) {
-    case "start":
-      await startAll(cwd);
+    case "start": {
+      // Parse optional --env flag: integra-manager start --env .env.dev
+      const envFlag = args.find((a, i) => a === "--env" && args[i + 1]);
+      const envFile = envFlag ? args[args.indexOf("--env") + 1] : null;
+      await startAll(cwd, envFile);
       console.log("✓ All enabled integrations started.");
       break;
+    }
 
     case "stop":
       if (!args[0]) throw new Error("Usage: integra-manager stop <id>");

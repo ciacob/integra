@@ -1,0 +1,4 @@
+{
+  "https://devXXXXX.service-now.com/api/now/table/incident": "test/fixtures/responses/sn-get-incidents-200.json",
+  "https://your-org.atlassian.net/rest/api/3/issue":         "test/fixtures/responses/jira-create-issue-201.json"
+}

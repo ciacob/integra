@@ -1,0 +1,11 @@
+{
+  "_mockStatus": 201,
+  "result": {
+    "sys_id":            "fixture-sys-id-001",
+    "number":            "INC0099001",
+    "short_description": "VPN unreachable for all remote users since 08:00",
+    "state":             "1",
+    "priority":          "2",
+    "category":          "network"
+  }
+}

@@ -70,12 +70,16 @@ export function buildIntegrationDescriptor(integration, registryDir, lifecycle =
   const cwd       = resolve(registryDir, integration.path);
   const scheduled = lifecycle === "scheduled";
   const listener  = lifecycle === "listener";
+  // env_file: use integration.env_file if set, otherwise default to .env
+  const envFile   = integration.env_file
+    ? resolve(registryDir, integration.env_file)
+    : join(cwd, ".env");
 
   return {
     name:                      integration.id,
     script:                    ENGINE_BIN,
     cwd,
-    env_file:                  join(cwd, ".env"),
+    env_file:                  envFile,
     out_file:                  join(cwd, "logs", "out.log"),
     error_file:                join(cwd, "logs", "err.log"),
     merge_logs:                false,

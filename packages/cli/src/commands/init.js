@@ -55,5 +55,7 @@ export async function init([name]) {
   console.log(`  cp .env.example .env`);
   console.log(`  # Author your connections/, maps/, processes/, resolvers/`);
   console.log(`  integra validate`);
-  console.log(`  integra run <your-process-id>\n`);
+  console.log(`  integra run <your-process-id>`);
+  console.log(`  # Add fixture files to test/fixtures/ then:`);
+  console.log(`  integra test\n`);
 }
