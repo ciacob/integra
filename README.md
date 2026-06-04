@@ -614,6 +614,69 @@ For platforms that provide a stable content hash in metadata (ServiceNow's `hash
 
 ---
 
+## Pagination
+
+Integra has no declarative pagination support and no pagination utility library. Pagination patterns vary too much across APIs for a shared abstraction to be useful — offset, cursor, link-header, embedded `next` URLs, and GraphQL `pageInfo` are all structurally different. A library that covers some of them would just be a collection of examples, and one that tried to cover all of them would be a configuration burden nobody wants.
+
+The `while` loop is already the right primitive. Pagination is a resolver concern.
+
+### The pattern
+
+A resolver function manages the page state in shared space. The `while` condition calls it; it fetches the next page URL or offset, returns `true` while there is more data, `false` when done.
+
+The `example-sn-jira` integration demonstrates this with a queue-based approach: the first connection fetch returns all results, a resolver initialises a queue in shared space, and the `while` loop drains it one item at a time. Adapt this for your API's specific pagination scheme.
+
+For APIs that paginate the fetch itself — where each connection call returns one page and you need to loop over pages — the pattern is:
+
+```javascript
+// resolvers/my-api.js
+
+export function hasNextPage(ctx) {
+  // Store whatever your API returns as the "next page" indicator
+  // e.g. a cursor, an offset, a full URL — your choice
+  return !!ctx._shared.get("next_page_cursor");
+}
+
+export function prepareNextPage(ctx) {
+  // Move the cursor into the connection's input for the next iteration
+  ctx._shared.set("page_cursor", ctx._shared.get("next_page_cursor"));
+}
+
+export function extractPageCursor(ctx) {
+  // Called as the connection's output fn — extracts the next cursor from the response
+  const next = ctx.output?.result?.nextPageToken ?? null;
+  ctx._shared.set("next_page_cursor", next);
+  ctx._shared.set("page_results", [
+    ...(ctx._shared.get("page_results") ?? []),
+    ...(ctx.output?.result?.items ?? []),
+  ]);
+  return ctx.output;
+}
+```
+
+```json
+{
+  "id": "my-process",
+  "flow": {
+    "steps": [
+      { "id": "first-page", "component": "my-api-fetch" },
+      {
+        "id": "page-loop",
+        "while": "{{fn:hasNextPage}}",
+        "steps": [
+          { "component": "prepare-next-page-map" },
+          { "component": "my-api-fetch" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The accumulation of results across pages — `[...existing, ...newItems]` — is plain JavaScript. There is nothing to import.
+
+---
+
 ## License
 
 Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
