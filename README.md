@@ -481,6 +481,139 @@ Optionally validate query params against a JSON Schema before the process fires 
 
 ---
 
+## Binary content transfer
+
+Connection components support non-JSON request and response bodies via two optional root fields: `body_type` and `response_type`. Both default to `json` when absent.
+
+### Downloading a file (`response_type: "binary"`)
+
+The engine calls `arrayBuffer()` instead of `json()` on the response, parses metadata from response headers, and exposes the result to the output resolver as:
+
+```
+ctx.output.buffer          — raw Buffer (in-memory, not serialised to shared space)
+ctx.output.meta            — serialisable: { file_name, content_type, size, hash }
+ctx.output.idempotency_key — extracted from meta using the dot-path in binary_info.idempotency_key
+```
+
+```json
+{
+  "id":            "sn-get-attachment",
+  "response_type": "binary",
+  "binary_info": {
+    "idempotency_key": "hash"
+  },
+  "request": {
+    "type":     "GET",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/attachment/{{input.sys_id}}/file",
+    "headers":  { "Accept": "*/*" }
+  },
+  "output":   "{{fn:snStoreAttachment}}",
+  "resolver": "resolvers/attachments.js"
+}
+```
+
+### Uploading raw binary (`body_type: "binary"`)
+
+The engine sends the buffer directly with the declared `Content-Type`. `request.body` is ignored.
+
+```json
+{
+  "id":        "sn-post-attachment",
+  "body_type": "binary",
+  "binary_info": {
+    "source_bytes": "{{shared.attachment_buffer}}",
+    "content_type": "{{input.mime_type}}",
+    "file_name":    "{{input.file_name}}"
+  },
+  "request": {
+    "type":     "POST",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/attachment/file",
+    "query": {
+      "table_name":   "{{input.table_name}}",
+      "table_sys_id": "{{input.sys_id}}",
+      "file_name":    "{{input.file_name}}"
+    }
+  }
+}
+```
+
+### Uploading multipart form data (`body_type: "multipart"`)
+
+The engine builds a `FormData` body. Metadata `fields` are appended first, the file last — as required by ServiceNow, Jira, and most multipart endpoints. `Content-Type` including the boundary is set automatically by `fetch`.
+
+```json
+{
+  "id":        "sn-upload-multipart",
+  "body_type": "multipart",
+  "binary_info": {
+    "source_bytes": "{{shared.attachment_buffer}}",
+    "content_type": "{{input.mime_type}}",
+    "file_name":    "{{input.file_name}}",
+    "file_field":   "file",
+    "fields":       "{{shared.attachment_metadata}}"
+  },
+  "request": {
+    "type":     "POST",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/attachment/upload"
+  }
+}
+```
+
+### `binaryUtilities.js`
+
+Importable utilities for resolver authors. The two delegatees cover the vast majority of attachment handling:
+
+```javascript
+import {
+  receiveAttachment,        // inbound: idempotency check → write to disk → return record
+  prepareAttachmentUpload,  // outbound: read from disk → detect MIME → return upload-ready object
+  buildMultipartFields,     // pure: builds the fields object for a multipart upload
+  detectMimeType,           // async: magic-byte detection via file-type library
+  writeBufferToDisk,        // writes a Buffer to disk, skips if file exists (overwrite: false)
+  readFileAsBuffer,         // reads a file into a Buffer
+  parseResponseMeta,        // extracts attachment metadata from response headers
+  checkIdempotency,         // pure: checks a registry object for a known key
+  registerIdempotency,      // pure: returns a new registry with the key added
+} from "@integra/engine/binaryUtilities";
+```
+
+A complete inbound resolver using the delegatee:
+
+```javascript
+import { receiveAttachment } from "@integra/engine/binaryUtilities";
+
+export async function snStoreAttachment(ctx) {
+  const record = await receiveAttachment(ctx, { dir: "attachments" });
+  ctx._shared.set("attachment", record);   // serialisable — safe to store
+  return record;
+}
+```
+
+A complete outbound resolver:
+
+```javascript
+import { prepareAttachmentUpload, buildMultipartFields } from "@integra/engine/binaryUtilities";
+
+export async function snPrepareUpload(ctx) {
+  const upload = await prepareAttachmentUpload(ctx);
+  ctx._shared.set("attachment_buffer",   upload.buffer);
+  ctx._shared.set("attachment_metadata", buildMultipartFields(upload, {
+    table_name:   ctx.env.SN_TABLE,
+    table_sys_id: ctx.input.record_sys_id,
+  }));
+}
+```
+
+### Idempotency
+
+When `binary_info.idempotency_key` is set, the engine extracts the named field from response metadata and exposes it as `ctx.output.idempotency_key`. `receiveAttachment` checks this key against a per-run registry in shared space and skips the disk write if the content has already been processed — useful when a process iterates over attachments and the same file appears more than once.
+
+For platforms that provide a stable content hash in metadata (ServiceNow's `hash` field, for example), set `"idempotency_key": "hash"` and identical files are automatically deduplicated within a run.
+
+> MIME type detection uses the [`file-type`](https://github.com/sindresorhus/file-type) library (magic bytes). Add `storage/` and `attachments/` to your `.gitignore`.
+
+---
+
 ## License
 
 Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
