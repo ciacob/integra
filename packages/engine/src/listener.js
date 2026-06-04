@@ -111,12 +111,13 @@ export async function startListener(manifest, bootContext, cwd, env = process.en
   const httpServer = resolveEnvInObject(rawHttpServer, env);
 
   const {
-    port       = 3000,
-    host       = "0.0.0.0",
-    path       = "/",
-    method     = "POST",
-    auth       = null,
-    validation = null,
+    port            = 3000,
+    host            = "0.0.0.0",
+    path            = "/",
+    method          = "POST",
+    auth            = null,
+    validation      = null,
+    queryValidation = null,
   } = httpServer;
 
   const { registry, resolvers, storage, executeProcess, createSharedSpace } = bootContext;
@@ -133,6 +134,18 @@ export async function startListener(manifest, bootContext, cwd, env = process.en
       payloadSchema    = JSON.parse(raw);
     } catch (err) {
       throw new EngineError(`Failed to load validation schema: ${validation}`, err);
+    }
+  }
+
+  // Load optional query params schema for validation
+  let querySchema = null;
+  if (queryValidation) {
+    try {
+      const schemaPath = resolvePath(cwd, queryValidation);
+      const raw        = await readFile(schemaPath, "utf-8");
+      querySchema      = JSON.parse(raw);
+    } catch (err) {
+      throw new EngineError(`Failed to load query validation schema: ${queryValidation}`, err);
     }
   }
 
@@ -155,7 +168,7 @@ export async function startListener(manifest, bootContext, cwd, env = process.en
       const requestId = `req_${Date.now()}`;
       const meta      = { requestId, path, method, integration: manifest.id };
 
-      logger.info("listener.request", meta);
+      logger.info("listener.request", { ...meta, query: request.query });
 
       // Inbound authentication
       if (auth) {
@@ -180,16 +193,29 @@ export async function startListener(manifest, bootContext, cwd, env = process.en
         }
       }
 
+      // Query params schema validation
+      if (querySchema) {
+        const { default: Ajv }    = await import("ajv");
+        const { default: addFmt } = await import("ajv-formats");
+        const ajv                 = new Ajv({ allErrors: true });
+        addFmt(ajv);
+        const validate = ajv.compile(querySchema);
+        if (!validate(request.query)) {
+          logger.warn("listener.query_validation_failed", { ...meta, errors: validate.errors });
+          return reply.status(400).send({ error: "Bad Request", details: validate.errors });
+        }
+      }
+
       // Fire-and-forget or synchronous response
       if (!sendResult) {
         reply.status(202).send({ received: true, requestId });
         // Process runs after response is sent
-        runProcess(proc, registry, resolvers, storage, request.body, meta, createSharedSpace).catch(err => {
+        runProcess(proc, registry, resolvers, storage, buildRequestInput(request), meta, createSharedSpace).catch(err => {
           logger.error("listener.process_error", { ...meta, message: err.message });
         });
       } else {
         try {
-          const result = await runProcess(proc, registry, resolvers, storage, request.body, meta, createSharedSpace);
+          const result = await runProcess(proc, registry, resolvers, storage, buildRequestInput(request), meta, createSharedSpace);
           const httpResponse = result.shared?.http_response;
           const status       = httpResponse?.status ?? 200;
           const body         = httpResponse?.body   ?? { ok: true, requestId };
@@ -212,16 +238,35 @@ export async function startListener(manifest, bootContext, cwd, env = process.en
 }
 
 /**
+ * Builds the input envelope injected into the entry process.
+ * Pure — takes a Fastify request object, returns a plain object.
+ *
+ * The process accesses these as:
+ *   {{input.payload.fieldName}}          — parsed JSON body
+ *   {{input.query.paramName}}            — query string parameters
+ *   {{input.headers["x-event-type"]}}   — request headers
+ *   {{input.rawBody}}                    — raw body bytes (Buffer), for custom HMAC etc.
+ */
+export function buildRequestInput(request) {
+  return {
+    payload: request.body    ?? null,
+    query:   request.query   ?? {},
+    headers: request.headers ?? {},
+    rawBody: request.rawBody ?? null,
+  };
+}
+
+/**
  * Executes the entry process for one inbound request.
  * Each request gets its own fresh shared space — requests are isolated.
  */
-async function runProcess(proc, registry, resolvers, storage, payload, meta, createSharedSpace) {
+async function runProcess(proc, registry, resolvers, storage, input, meta, createSharedSpace) {
   const shared = createSharedSpace();
   logger.info("listener.process_start", meta);
 
   const result = await (await import("./executor.js")).executeProcess(
     proc, registry, shared, resolvers, undefined, storage,
-    { payload }   // injected as process input
+    input   // full request envelope injected as process input
   );
 
   logger.info("listener.process_done", meta);

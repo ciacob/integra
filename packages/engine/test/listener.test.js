@@ -9,6 +9,7 @@ import {
   resolveEnvPlaceholders,
   resolveEnvInObject,
   verifyInboundAuth,
+  buildRequestInput,
 } from "../src/listener.js";
 
 import {
@@ -214,6 +215,73 @@ describe("verifyInboundAuth", () => {
 
   test("throws for unknown auth type", () => {
     expect(() => verifyInboundAuth({ type: "magic" }, PAYLOAD, {})).toThrow("Unsupported inbound auth type");
+  });
+});
+
+// ── buildRequestInput ────────────────────────────────────────────────────────
+
+describe("buildRequestInput", () => {
+  function makeRequest(overrides = {}) {
+    return {
+      body:    { issue: { id: "INC-1", summary: "Test" } },
+      query:   { token: "abc", event: "issue_created" },
+      headers: { "x-event-type": "issue_created", "content-type": "application/json" },
+      rawBody: Buffer.from('{"issue":{"id":"INC-1"}}'),
+      ...overrides,
+    };
+  }
+
+  test("includes payload from request.body", () => {
+    const input = buildRequestInput(makeRequest());
+    expect(input.payload).toEqual({ issue: { id: "INC-1", summary: "Test" } });
+  });
+
+  test("includes query params from request.query", () => {
+    const input = buildRequestInput(makeRequest());
+    expect(input.query.token).toBe("abc");
+    expect(input.query.event).toBe("issue_created");
+  });
+
+  test("includes headers from request.headers", () => {
+    const input = buildRequestInput(makeRequest());
+    expect(input.headers["x-event-type"]).toBe("issue_created");
+  });
+
+  test("includes rawBody from request.rawBody", () => {
+    const input = buildRequestInput(makeRequest());
+    expect(Buffer.isBuffer(input.rawBody)).toBe(true);
+  });
+
+  test("defaults to empty object for missing query", () => {
+    const input = buildRequestInput(makeRequest({ query: undefined }));
+    expect(input.query).toEqual({});
+  });
+
+  test("defaults to null for missing body", () => {
+    const input = buildRequestInput(makeRequest({ body: undefined }));
+    expect(input.payload).toBeNull();
+  });
+
+  test("defaults to null for missing rawBody", () => {
+    const input = buildRequestInput(makeRequest({ rawBody: undefined }));
+    expect(input.rawBody).toBeNull();
+  });
+
+  test("does not mutate the request object", () => {
+    const req      = makeRequest();
+    const origBody = req.body;
+    buildRequestInput(req);
+    expect(req.body).toBe(origBody);
+  });
+
+  test("query and payload are independently accessible", () => {
+    const req = makeRequest({
+      body:  { eventType: "created" },
+      query: { source: "webhook" },
+    });
+    const input = buildRequestInput(req);
+    expect(input.payload.eventType).toBe("created");
+    expect(input.query.source).toBe("webhook");
   });
 });
 
