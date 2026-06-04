@@ -371,7 +371,7 @@ The request body is injected as the process `input`. Inside your process and res
 
 ### Responding to the caller
 
-`sendResult: false` (default) — the listener responds `202 Accepted` immediately and fires the process in the background. Use this for fire-and-forget webhooks where the sender doesn't wait.
+`sendResult: false` (default) — the listener responds `202 Accepted` immediately and fires the process in the background. The sender considers the event delivered and will not retry. If the process fails, a structured error is written to the integration log — a process failure is a bug to fix, not a condition to retry around.
 
 `sendResult: true` — the listener awaits the process result and sends the HTTP response from it. The process writes to `shared.http_response`:
 
@@ -385,7 +385,7 @@ export function buildResponse(ctx) {
 }
 ```
 
-If `http_response` is absent, the listener falls back to `200 OK`.
+If `http_response` is absent, the listener falls back to `200 OK`. Use `sendResult: true` when the sender must receive a non-2xx to trigger its own retry — for example, Jira will retry a webhook delivery only if it receives a 5xx response. In that case a process failure causes the listener to respond `500`, and Jira retries automatically.
 
 ### Inbound authentication
 
