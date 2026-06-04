@@ -1,0 +1,33 @@
+{
+  "id":                "handle-jira-issue",
+  "short_description": "Receives a Jira issue event and creates a ServiceNow incident",
+  "output":            "{{fn:buildHttpResponse('sync_result')}}",
+  "resolver":          "resolvers/handler.js",
+  "flow": {
+    "metadata": { "parallel": false },
+    "steps": [
+      {
+        "id":        "extract-issue",
+        "component": "jira-to-sn-incident",
+        "input":     "{{input.payload.issue}}",
+        "onError":   "{{fn:handleMapError}}"
+      },
+      {
+        "id":        "check-event-type",
+        "if":        "{{fn:isSupportedEvent(input.payload.webhookEvent)}}",
+        "steps": [
+          {
+            "id":        "create-incident",
+            "component": "sn-create-incident",
+            "onError":   "{{fn:handleCreateError}}"
+          }
+        ]
+      },
+      {
+        "id":   "unsupported-event",
+        "else": null,
+        "steps": []
+      }
+    ]
+  }
+}

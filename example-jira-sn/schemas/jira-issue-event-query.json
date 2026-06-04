@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id":     "https://integra.dev/schemas/examples/jira-issue-event-query.json",
+  "title":   "Jira Issue Webhook Query Parameters",
+  "type":    "object",
+  "additionalProperties": true
+}

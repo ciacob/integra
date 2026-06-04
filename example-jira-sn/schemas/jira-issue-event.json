@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id":     "https://integra.dev/schemas/examples/jira-issue-event.json",
+  "title":   "Jira Issue Webhook Event",
+  "type":    "object",
+  "required": ["webhookEvent", "issue"],
+  "properties": {
+    "webhookEvent": {
+      "type":    "string",
+      "description": "e.g. jira:issue_created, jira:issue_updated"
+    },
+    "issue": {
+      "type":     "object",
+      "required": ["id", "key", "fields"],
+      "properties": {
+        "id":     { "type": "string" },
+        "key":    { "type": "string" },
+        "fields": {
+          "type": "object",
+          "required": ["summary", "issuetype"],
+          "properties": {
+            "summary":     { "type": "string" },
+            "description": {},
+            "priority":    { "type": ["object", "null"] },
+            "status":      { "type": ["object", "null"] },
+            "issuetype":   { "type": "object" },
+            "assignee":    { "type": ["object", "null"] },
+            "reporter":    { "type": ["object", "null"] },
+            "project":     { "type": ["object", "null"] }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

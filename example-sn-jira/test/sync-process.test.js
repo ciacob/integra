@@ -49,7 +49,7 @@ function mockFetch(snFixture) {
   let jiraCallCount = 0;
   const jiraCreated = [];
 
-  global.fetch = async (url, opts) => {
+  globalThis.fetch = async (url, opts) => {
     if (url.includes("service-now.com")) {
       return { ok: true, status: 200, json: async () => snFixture };
     }
@@ -75,7 +75,7 @@ describe("sync-incident-sn-to-jira (process)", () => {
     boot = mod.boot;
   });
 
-  afterEach(() => { global.fetch = undefined; });
+  afterEach(() => { globalThis.fetch = undefined; });
 
   test("creates one Jira issue per ServiceNow incident", async () => {
     const { getCount, getCreated } = mockFetch(SN_TWO_INCIDENTS);
@@ -128,7 +128,7 @@ describe("sync-incident-sn-to-jira (process)", () => {
 
   test("run summary reflects skipped incidents when create errors are swallowed", async () => {
     let callCount = 0;
-    global.fetch = async (url, opts) => {
+    globalThis.fetch = async (url, opts) => {
       if (url.includes("service-now.com")) {
         return { ok: true, status: 200, json: async () => SN_TWO_INCIDENTS };
       }

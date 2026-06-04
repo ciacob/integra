@@ -1,0 +1,23 @@
+{
+  "id":          "example-jira-sn",
+  "lifecycle":   "listener",
+  "entry":       "handle-jira-issue",
+  "sendResult":  true,
+
+  "_sendResult_note": "sendResult:true is set for demonstration only — it makes the response visible when running send-test-webhook.js locally. Real Jira ignores webhook response bodies entirely; in production you would use sendResult:false.",
+
+  "httpServer": {
+    "port":            3100,
+    "path":            "/hooks/jira",
+    "method":          "POST",
+    "auth": {
+      "type":      "hmac",
+      "header":    "X-Hub-Signature-256",
+      "secret":    "{{env.JIRA_WEBHOOK_SECRET}}"
+    },
+    "validation":      "schemas/jira-issue-event.json",
+    "queryValidation": "schemas/jira-issue-event-query.json"
+  },
+
+  "description": "Receives Jira issue-created/updated webhooks and creates or updates a corresponding ServiceNow incident."
+}

@@ -1,0 +1,21 @@
+{
+  "id":                "sn-create-incident",
+  "short_description": "Creates a new incident in ServiceNow",
+  "purpose":           "write",
+  "auth": {
+    "type": "basic",
+    "user": "{{env.SN_USER}}",
+    "pass": "{{env.SN_PASS}}"
+  },
+  "request": {
+    "type":     "POST",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/table/incident",
+    "headers": {
+      "Accept":       "application/json",
+      "Content-Type": "application/json"
+    },
+    "body": "{{shared.sn_incident_payload}}"
+  },
+  "output":   "{{fn:snStore('sn_created_incident')}}",
+  "resolver": "resolvers/servicenow.js"
+}

@@ -56,11 +56,18 @@ export async function boot(cwd, options = {}) {
   // Persistent storage (tokens etc.)
   const storage = createStorage(cwd);
 
-  if (lifecycle === "listener") {
-    // Long-lived: start the HTTP server and stay alive
+  if (lifecycle === "listener" && !options.processId) {
+    // Long-lived: start the HTTP server and stay alive.
+    // When processId is explicitly provided (e.g. in tests), skip the listener
+    // and run the process directly in run-once mode instead.
     logger.info("engine.lifecycle", { lifecycle: "listener" });
 
-    await startListener(manifest, {
+    // Allow tests to override the listener port without editing integra.json
+    const effectiveManifest = options.listenerPort
+      ? { ...manifest, httpServer: { ...manifest.httpServer, port: options.listenerPort } }
+      : manifest;
+
+    const fastify = await startListener(effectiveManifest, {
       registry,
       resolvers,
       storage,
@@ -68,12 +75,13 @@ export async function boot(cwd, options = {}) {
       createSharedSpace,
     }, cwd);
 
-    // Process stays alive — Fastify keeps the event loop open
+    // Process stays alive — Fastify keeps the event loop open.
+    // Returns the Fastify instance so callers (e.g. tests) can close it.
     logger.info("engine.listening", { integration: manifest.id });
-    return;
+    return fastify;
   }
 
-  // Run-once (absent lifecycle or "scheduled")
+  // Run-once (absent lifecycle, "scheduled", or listener with explicit processId)
   const shared = createSharedSpace();
   const entryProcessId = options.processId ?? manifest.entry ?? null;
 
@@ -88,7 +96,7 @@ export async function boot(cwd, options = {}) {
 
   logger.info("engine.running", { processId: entryProcessId, lifecycle: lifecycle ?? "run-once" });
 
-  const result = await executeProcess(proc, registry, shared, resolvers, undefined, storage);
+  const result = await executeProcess(proc, registry, shared, resolvers, undefined, storage, options.inputOverride);
 
   logger.info("engine.done", { processId: entryProcessId });
   return result;
