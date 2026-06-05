@@ -25,6 +25,7 @@ Commands:
   integra run <process-id> --env <file>  Run with a specific env file (default: .env)
   integra test                     Mock-test the integration using fixture files
   integra ping                     Fire the no-op connection and report reachability
+  integra ping --con <id>[,<id>]   Ping specific connection(s) — comma-separated
   integra ping --env <file>        Ping with a specific env file
 
 Options:

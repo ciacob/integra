@@ -93,7 +93,7 @@ describe("integra ping", () => {
     dir = await makeIntegrationDir(null);
     process.chdir(dir);
 
-    await expect(ping([])).rejects.toThrow("no-op connection found");
+    await expect(ping([])).rejects.toThrow("no-op");
   });
 
   // ── Network error ──────────────────────────────────────────────────────────
@@ -224,5 +224,89 @@ describe("integra ping", () => {
     await ping([]);
 
     expect(capturedUrl).toContain("example.com/api/test");
+  });
+  // ── --con flag ───────────────────────────────────────────────────────────
+
+  test("--con targets a specific named connection", async () => {
+    dir = await makeIntegrationDir({
+      id: "sn-health",
+      purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/api/health" },
+    });
+    // Rename no-op.json to sn-health.json
+    const { rename } = await import("fs/promises");
+    await rename(join(dir, "connections/no-op.json"), join(dir, "connections/sn-health.json"));
+    process.chdir(dir);
+
+    globalThis.fetch = async () => ({ ok: true, status: 200, statusText: "OK" });
+
+    await expect(ping(["--con", "sn-health"])).resolves.toBeUndefined();
+  });
+
+  test("throws with clear message when --con names an unknown connection", async () => {
+    dir = await makeIntegrationDir({
+      id: "no-op",
+      purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/api/test" },
+    });
+    process.chdir(dir);
+
+    await expect(ping(["--con", "does-not-exist"])).rejects.toThrow("does-not-exist");
+  });
+
+  test("pings multiple connections when --con has comma-separated ids", async () => {
+    dir = await makeIntegrationDir(null);
+    const { writeFile: wf } = await import("fs/promises");
+
+    // Write two connection files
+    await wf(join(dir, "connections/conn-a.json"), JSON.stringify({
+      id: "conn-a", purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/a" },
+    }));
+    await wf(join(dir, "connections/conn-b.json"), JSON.stringify({
+      id: "conn-b", purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/b" },
+    }));
+    process.chdir(dir);
+
+    const called = [];
+    globalThis.fetch = async (url) => {
+      called.push(url);
+      return { ok: true, status: 200, statusText: "OK" };
+    };
+
+    await expect(ping(["--con", "conn-a,conn-b"])).resolves.toBeUndefined();
+    expect(called).toHaveLength(2);
+    expect(called.some(u => u.includes("/a"))).toBe(true);
+    expect(called.some(u => u.includes("/b"))).toBe(true);
+  });
+
+  test("exits 1 if any connection in a multi-ping fails", async () => {
+    dir = await makeIntegrationDir(null);
+    const { writeFile: wf } = await import("fs/promises");
+
+    await wf(join(dir, "connections/conn-a.json"), JSON.stringify({
+      id: "conn-a", purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/a" },
+    }));
+    await wf(join(dir, "connections/conn-b.json"), JSON.stringify({
+      id: "conn-b", purpose: "read",
+      request: { type: "GET", endpoint: "https://example.com/b" },
+    }));
+    process.chdir(dir);
+
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount++;
+      // First succeeds, second fails
+      return callCount === 1
+        ? { ok: true,  status: 200, statusText: "OK" }
+        : { ok: false, status: 401, statusText: "Unauthorized" };
+    };
+
+    await expect(ping(["--con", "conn-a,conn-b"])).rejects.toThrow("process.exit(1)");
+    expect(exitCode).toBe(1);
+    // Both connections were still attempted
+    expect(callCount).toBe(2);
   });
 });

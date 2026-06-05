@@ -247,19 +247,28 @@ Verifies that an integration's remote systems are reachable with the configured 
 You provide the check. Create `connections/no-op.json` — a connection component whose request is safe to fire at any time (read-only, no side effects). `integra ping` loads it, resolves auth and endpoint from your env, fires the request, and reports the HTTP status.
 
 ```bash
-integra ping
-integra ping --env .env.dev
+integra ping                                   # fires no-op
+integra ping --con sn-get-incident             # fires a specific connection
+integra ping --con sn-get-incident,jira-health # fires multiple, in sequence
+integra ping --env .env.dev                    # with a specific env file
 ```
 
-Example output:
+Example output for a multi-connection ping:
 
 ```
-Pinging: Connectivity check — fetches one incident sys_id to verify SN credentials
+Pinging 2 connections:
 
+[ sn-get-incident ] Connectivity check — fetches one incident sys_id
   GET https://devxxxxx.service-now.com/api/now/table/incident?sysparm_limit=1
   Authorization: Basic ****
-
   ✓ HTTP 200 — reachable (143ms)
+
+[ jira-health ] Connectivity check — fetches current Jira user
+  GET https://your-org.atlassian.net/rest/api/3/myself
+  Authorization: Basic ****
+  ✓ HTTP 200 — reachable (89ms)
+
+✓ All 2 connections reachable.
 ```
 
 ### The no-op connection

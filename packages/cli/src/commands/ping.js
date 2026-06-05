@@ -1,21 +1,20 @@
 /**
  * @integra/cli - commands/ping.js
  *
- * Fires the integration's no-op connection and reports whether the remote
- * system is reachable with the configured credentials.
- *
- * The implementor is responsible for providing a safe, side-effect-free
- * connection component named "no-op" in connections/no-op.json.
- * This command makes no assumptions about what is safe to call — it simply
- * runs whatever the no-op connection declares.
+ * Fires one or more connections and reports whether each remote system
+ * is reachable with the configured credentials.
  *
  * Usage:
- *   integra ping
- *   integra ping --env .env.dev
+ *   integra ping                          # fires connections/no-op.json
+ *   integra ping --con sn-get-incident    # fires a specific connection
+ *   integra ping --con sn-get-incident,jira-create-issue  # fires multiple
+ *   integra ping --env .env.dev           # with a specific env file
  *
- * Exit codes:
- *   0  — HTTP response received (even a 4xx/5xx counts as "reachable")
- *   1  — network error, missing no-op, or misconfiguration
+ * When --con is absent, the fixed id "no-op" is used. The implementor is
+ * responsible for providing connections that are safe to fire without a body.
+ *
+ * Connections run sequentially. Each is reported individually.
+ * Exit code 0 only if all connections succeed.
  */
 
 import { resolve }    from "path";
@@ -24,9 +23,67 @@ import { parseArgs }  from "../args.js";
 
 const NO_OP_ID = "no-op";
 
+// ── Core: ping one connection ──────────────────────────────────────────────────
+
+async function pingOne(conn, ctx, resolveValue, resolveAuthBlock) {
+  const { request, auth } = conn;
+
+  const endpoint     = resolveValue(request.endpoint, ctx);
+  const method       = request.type ?? "GET";
+  const headers      = resolveValue(request.headers ?? {}, ctx);
+  const query        = resolveValue(request.query   ?? {}, ctx);
+  const resolvedAuth = auth ? resolveValue(auth, ctx) : null;
+
+  let authHeaders = {};
+  if (resolvedAuth) {
+    authHeaders = await resolveAuthBlock(resolvedAuth, conn.id, ctx) ?? {};
+  }
+
+  const url = new URL(endpoint);
+  for (const [k, v] of Object.entries(query)) {
+    if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+  }
+
+  const mergedHeaders = { "Content-Type": "application/json", ...authHeaders, ...headers };
+
+  // Display auth header — mask the credential value
+  const authDisplay = mergedHeaders.Authorization
+    ? mergedHeaders.Authorization.replace(/^(Basic|Bearer)\s+\S+/, (_, s) => `${s} ****`)
+    : null;
+
+  console.log(`  ${method} ${url}`);
+  if (authDisplay) console.log(`  Authorization: ${authDisplay}`);
+
+  const t0 = Date.now();
+  let res;
+
+  try {
+    res = await fetch(url.toString(), { method, headers: mergedHeaders });
+  } catch (err) {
+    const duration = Date.now() - t0;
+    console.error(`  ✗ Network error (${duration}ms): ${err.message}`);
+    console.error(`    Check that ${url.hostname} is reachable and the URL is correct.\n`);
+    return false;
+  }
+
+  const duration = Date.now() - t0;
+  const ok       = res.status >= 200 && res.status < 300;
+
+  if (ok) {
+    console.log(`  ✓ HTTP ${res.status} — reachable (${duration}ms)\n`);
+  } else {
+    console.error(`  ✗ HTTP ${res.status} ${res.statusText} (${duration}ms)`);
+    console.error(`    Credentials or endpoint may be incorrect.\n`);
+  }
+
+  return ok;
+}
+
+// ── Entry point ────────────────────────────────────────────────────────────────
+
 export async function ping(argv) {
-  const { flags }   = parseArgs(argv);
-  const cwd         = process.cwd();
+  const { flags } = parseArgs(argv);
+  const cwd       = process.cwd();
 
   // ── Env file ────────────────────────────────────────────────────────────────
 
@@ -37,30 +94,23 @@ export async function ping(argv) {
     throw new Error(`Env file not found: ${envFile}`);
   }
 
-  const { loadEnvFile, readManifest } = await import("@integra/engine");
-  await loadEnvFile(envFile);
-
-  // ── Load components ─────────────────────────────────────────────────────────
-
+  const { loadEnvFile }               = await import("@integra/engine");
   const { load, collectResolverPaths } = await import("@integra/engine/loader");
   const { loadResolvers, resolve: resolveValue } = await import("@integra/engine/resolver");
-  const { resolveAuthBlock }           = await import("@integra/engine/executor");
-  const { createStorage }              = await import("@integra/engine/storage");
+  const { resolveAuthBlock }          = await import("@integra/engine/executor");
+  const { createStorage }             = await import("@integra/engine/storage");
 
-  const registry = await load(cwd);
-  const conn     = registry.connections[NO_OP_ID];
+  await loadEnvFile(envFile);
 
-  if (!conn) {
-    throw new Error(
-      `No no-op connection found.\n` +
-      `Create connections/no-op.json with a safe, read-only request to verify connectivity.\n` +
-      `Example:\n` +
-      `  { "id": "no-op", "purpose": "read", "auth": { ... }, "request": { "type": "GET", "endpoint": "..." } }`
-    );
-  }
+  // ── Resolve connection ids ──────────────────────────────────────────────────
 
-  // ── Build context ───────────────────────────────────────────────────────────
+  const connIds = flags.con
+    ? flags.con.split(",").map(s => s.trim()).filter(Boolean)
+    : [NO_OP_ID];
 
+  // ── Load registry and resolvers ─────────────────────────────────────────────
+
+  const registry      = await load(cwd);
   const resolverPaths = collectResolverPaths(registry);
   const resolvers     = await loadResolvers(resolverPaths, cwd);
   const storage       = createStorage(cwd);
@@ -72,83 +122,52 @@ export async function ping(argv) {
     output:    {},
     component: {},
     resolvers,
-    meta:      { runId: "ping", processId: "ping", stepId: NO_OP_ID },
+    meta:      { runId: "ping", processId: "ping", stepId: "ping" },
     logger:    { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     _shared:   { get: () => undefined, set: () => {}, all: () => ({}) },
     _storage:  storage,
   };
 
-  // ── Resolve request ─────────────────────────────────────────────────────────
+  // ── Validate all requested connections exist before firing any ──────────────
 
-  const { request, auth } = conn;
-
-  const endpoint = resolveValue(request.endpoint, ctx);
-  const method   = request.type ?? "GET";
-  const headers  = resolveValue(request.headers ?? {}, ctx);
-  const query    = resolveValue(request.query   ?? {}, ctx);
-
-  // Resolve auth — uses the same resolveAuthBlock as the executor,
-  // so custom resolver fns are correctly invoked when present
-  const resolvedAuth = auth ? resolveValue(auth, ctx) : null;
-  let   authHeaders  = {};
-  if (resolvedAuth) {
-    authHeaders = await resolveAuthBlock(resolvedAuth, NO_OP_ID, ctx) ?? {};
-  }
-
-  // Build URL with query params
-  const url = new URL(endpoint);
-  for (const [k, v] of Object.entries(query)) {
-    if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-  }
-
-  const mergedHeaders = {
-    "Content-Type": "application/json",
-    ...authHeaders,
-    ...headers,
-  };
-
-  // ── Report what we're about to do ──────────────────────────────────────────
-
-  console.log(`\nPinging: ${conn.short_description ?? NO_OP_ID}`);
-  if (flags.env) console.log(`Env:     ${envFileName}`);
-  console.log(`\n  ${method} ${url}`);
-
-  // Show auth header — mask the value
-  if (mergedHeaders.Authorization) {
-    const authDisplay = mergedHeaders.Authorization.replace(
-      /^(Basic|Bearer)\s+\S+/,
-      (_, scheme) => `${scheme} ****`
+  const missing = connIds.filter(id => !registry.connections[id]);
+  if (missing.length) {
+    const noun = missing.length === 1 ? "connection" : "connections";
+    throw new Error(
+      `Unknown ${noun}: ${missing.join(", ")}\n` +
+      `Available connections: ${Object.keys(registry.connections).join(", ") || "(none)"}\n` +
+      (connIds.includes(NO_OP_ID)
+        ? `Create connections/no-op.json with a safe, read-only request to verify connectivity.`
+        : "")
     );
-    console.log(`  Authorization: ${authDisplay}`);
-  }
-  console.log();
-
-  // ── Fire ────────────────────────────────────────────────────────────────────
-
-  const t0 = Date.now();
-  let res;
-
-  try {
-    res = await fetch(url.toString(), {
-      method,
-      headers: mergedHeaders,
-      // No body — ping is never a write
-    });
-  } catch (err) {
-    console.error(`  ✗ Network error: ${err.message}`);
-    console.error(`    Check that ${url.hostname} is reachable and the URL is correct.`);
-    process.exit(1);
   }
 
-  const duration = Date.now() - t0;
-  const ok       = res.status >= 200 && res.status < 300;
+  // ── Banner ──────────────────────────────────────────────────────────────────
 
-  if (ok) {
-    console.log(`  ✓ HTTP ${res.status} — reachable (${duration}ms)\n`);
-  } else {
-    console.error(`  ✗ HTTP ${res.status} ${res.statusText} (${duration}ms)`);
-    console.error(`    Credentials or endpoint may be incorrect.`);
-    console.error(`    Check your env file: ${envFileName}\n`);
-    process.exit(1);
+  const noun = connIds.length === 1 ? "connection" : "connections";
+  console.log(`\nPinging ${connIds.length} ${noun}${flags.env ? ` (env: ${envFileName})` : ""}:\n`);
+
+  // ── Fire each connection in sequence ────────────────────────────────────────
+
+  let allOk = true;
+
+  for (const id of connIds) {
+    const conn = registry.connections[id];
+    console.log(`[ ${id} ] ${conn.short_description ?? ""}`);
+    const ok = await pingOne(conn, ctx, resolveValue, resolveAuthBlock);
+    if (!ok) allOk = false;
   }
+
+  // ── Summary ─────────────────────────────────────────────────────────────────
+
+  if (connIds.length > 1) {
+    const passed = connIds.length - (allOk ? 0 : 1);
+    if (allOk) {
+      console.log(`✓ All ${connIds.length} connections reachable.\n`);
+    } else {
+      console.error(`✗ One or more connections failed — see details above.\n`);
+    }
+  }
+
+  if (!allOk) process.exit(1);
 }
