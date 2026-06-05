@@ -153,9 +153,90 @@ cp .env.example .env
 # Validate structure and schemas without running
 integra validate
 
-# Run a process locally
+# Run a process locally (uses .env by default)
 integra run my-process-id
+
+# Run with a specific env file — useful for sub-production or staging setups
+integra run my-process-id --env .env.dev
 ```
+
+---
+
+## Mock-testing (`integra test`)
+
+`integra test` runs your integration end-to-end against fixture files — no real systems are ever called. It is the safe-haven command: nothing can break, nothing can be written to production.
+
+### Fixture structure
+
+`integra init` scaffolds this layout inside every new integration:
+
+```
+test/fixtures/
+  webhooks/        — inbound payloads fired at listener integrations
+  responses/       — outbound response bodies returned by mocked upstream APIs
+  .disabled/       — move any fixture here to exclude it from test runs
+  .fixture-map.json
+  FIXTURES.md      — explains the conventions
+```
+
+### Response fixture format
+
+Any `.json` file in `responses/` is a valid response body. Use the optional `_mockStatus` field to set the HTTP status code (default 200); it is stripped before the body reaches your process:
+
+```json
+{
+  "_mockStatus": 201,
+  "result": { "sys_id": "abc", "number": "INC001" }
+}
+```
+
+### Fixture dispatch rules
+
+| Situation | Behaviour |
+|---|---|
+| One file in `responses/` | Used for all outbound calls — no map needed |
+| Multiple files in `responses/` | `.fixture-map.json` required |
+| No files in `responses/` | Error — `integra test` refuses to run |
+| No files in `webhooks/` (listener) | Error — `integra test` refuses to run |
+
+### `.fixture-map.json`
+
+Maps outbound request URLs to fixture filenames. Prefix matching — query params are handled automatically:
+
+```json
+{
+  "https://devxxxxx.service-now.com/api/now/table/incident": "test/fixtures/responses/sn-get-incidents-200.json",
+  "https://your-org.atlassian.net/rest/api/3/issue":         "test/fixtures/responses/jira-create-issue-201.json"
+}
+```
+
+URL not in map → immediate error naming the URL. Fixture file listed but missing → immediate error naming the file.
+
+### Running
+
+```bash
+# From the integration directory
+integra test
+```
+
+For listener integrations, `integra test` starts the real Fastify server, fires every webhook fixture at it in sequence, and reports the HTTP response for each. For outbound integrations, it runs the entry process with all outbound calls intercepted by fixture files.
+
+### The `.disabled/` folder
+
+Move any fixture file into `.disabled/` to exclude it without deleting it. Move it back to re-enable.
+
+### Env file switching
+
+`integra run` and `integra-manager start` accept `--env` to select a specific env file. Defaults to `.env`. This is the recommended way to test against sub-production or staging platforms — same implementation, different credentials:
+
+```bash
+integra run my-process-id --env .env.dev
+integra-manager start     --env .env.staging
+```
+
+The manager's `status` command shows which env file each running integration was started with.
+
+> `integra test` intentionally does not accept `--env` — it never touches real endpoints and has no need for credentials.
 
 ---
 

@@ -23,7 +23,6 @@ Commands:
   integra run <process-id>         Execute a process in the current directory
   integra run <process-id> --env <file>  Run with a specific env file (default: .env)
   integra test                     Mock-test the integration using fixture files
-  integra test --env <file>        Mock-test with a specific env file
 
 Options:
   --help, -h                       Show this help message

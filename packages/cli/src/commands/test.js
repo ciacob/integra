@@ -7,7 +7,11 @@
  *
  * Usage:
  *   integra test
- *   integra test --env .env.dev
+ *
+ * Note: --env is intentionally NOT supported here. integra test never consults
+ * credentials or real endpoints — everything is mocked. If your process reads
+ * env vars for non-credential purposes (e.g. project keys used in mapping),
+ * those should be represented in your fixture data instead.
  *
  * Lifecycle detection:
  *   listener  → start real Fastify, fire each webhooks/ fixture at it, collect results
@@ -20,11 +24,10 @@
  *   No webhook fixtures     → error (listener integration must have at least one)
  */
 
-import { readdir, readFile, stat }  from "fs/promises";
+import { readdir, readFile }        from "fs/promises";
 import { resolve, join, basename }  from "path";
 import { existsSync }               from "fs";
 import { createHmac }               from "crypto";
-import { parseArgs }                from "../args.js";
 
 const FIXTURES_DIR    = "test/fixtures";
 const WEBHOOKS_DIR    = "test/fixtures/webhooks";
@@ -89,14 +92,7 @@ export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn 
   }
 
   // Find matching entry — support exact match and prefix match
-  const match = Object.entries(fixtureMap).find(([pattern]) => {
-    try {
-      // Treat pattern as a URL prefix
-      return url.startsWith(pattern);
-    } catch {
-      return url === pattern;
-    }
-  });
+  const match = Object.entries(fixtureMap).find(([pattern]) => url.startsWith(pattern));
 
   if (!match) {
     throw new Error(
@@ -129,27 +125,22 @@ function buildMockFetch(fixtureMap, responseFiles, cwd) {
     console.log(`         → ${basename(fixturePath)}`);
 
     return {
-      ok:     true,
-      status: body._mockStatus ?? 200,
-      json:   async () => {
-        // Strip private _mockStatus key before returning
-        const { _mockStatus, ...rest } = body;
-        return rest;
-      },
-      text:       async () => raw,
+      ok:      (body._mockStatus ?? 200) < 400,
+      status:  body._mockStatus ?? 200,
+      json:    async () => { const { _mockStatus, ...rest } = body; return rest; },
+      text:    async () => raw,
       arrayBuffer: async () => Buffer.from(raw).buffer,
-      headers:    new Headers(body._mockHeaders ?? {}),
+      headers: new Headers(body._mockHeaders ?? {}),
     };
   };
 }
 
 // ── Outbound test runner ───────────────────────────────────────────────────────
 
-async function runOutboundTest(cwd, envFile) {
-  const { boot }            = await import("@integra/engine");
-  const { readManifest }    = await import("@integra/engine");
+async function runOutboundTest(cwd) {
+  const { boot, readManifest } = await import("@integra/engine");
 
-  const manifest      = await readManifest(cwd);
+  const manifest       = await readManifest(cwd);
   const entryProcessId = manifest.entry;
   if (!entryProcessId) throw new Error("No entry process defined in integra.json");
 
@@ -170,20 +161,16 @@ async function runOutboundTest(cwd, envFile) {
   }
   console.log();
 
-  // Install mock fetch
-  const realFetch   = globalThis.fetch;
-  globalThis.fetch  = buildMockFetch(fixtureMap, responseFiles, cwd);
+  const realFetch  = globalThis.fetch;
+  globalThis.fetch = buildMockFetch(fixtureMap, responseFiles, cwd);
 
   try {
-    const result = await boot(cwd, { processId: entryProcessId, envFile });
-
+    const result = await boot(cwd, { processId: entryProcessId });
     console.log(`\n  ✓ Process completed.`);
-
     if (process.env.LOG_LEVEL === "debug") {
       console.log("\n  Shared space:");
       console.log(JSON.stringify(result.shared, null, 2));
     }
-
     return { ok: true };
   } finally {
     globalThis.fetch = realFetch;
@@ -192,9 +179,8 @@ async function runOutboundTest(cwd, envFile) {
 
 // ── Inbound (listener) test runner ────────────────────────────────────────────
 
-async function runListenerTest(cwd, envFile) {
-  const { boot }          = await import("@integra/engine");
-  const { readManifest }  = await import("@integra/engine");
+async function runListenerTest(cwd) {
+  const { boot, readManifest } = await import("@integra/engine");
 
   const manifest      = await readManifest(cwd);
   const webhookFiles  = await listFixtures(resolve(cwd, WEBHOOKS_DIR));
@@ -230,30 +216,28 @@ async function runListenerTest(cwd, envFile) {
 
   let fastify;
   try {
-    fastify = await boot(cwd, { listenerPort: TEST_PORT, envFile });
+    fastify = await boot(cwd, { listenerPort: TEST_PORT });
 
-    const secret     = manifest.httpServer?.auth?.secret
+    const secret    = manifest.httpServer?.auth?.secret
       ? manifest.httpServer.auth.secret.replace(/\{\{env\.([^}]+)\}\}/, (_, k) => process.env[k] ?? "")
       : null;
-    const path       = manifest.httpServer?.path ?? "/";
-    const listenUrl  = `http://localhost:${TEST_PORT}${path}`;
-    const results    = [];
+    const path      = manifest.httpServer?.path ?? "/";
+    const listenUrl = `http://localhost:${TEST_PORT}${path}`;
+    const results   = [];
 
     for (const fixturePath of webhookFiles) {
-      const name  = basename(fixturePath);
-      const raw   = await readFile(fixturePath, "utf-8");
-      const body  = raw; // send as-is — preserve exact bytes for HMAC
-
+      const name    = basename(fixturePath);
+      const raw     = await readFile(fixturePath, "utf-8");
       const headers = { "Content-Type": "application/json" };
       if (secret) {
         headers["X-Hub-Signature-256"] =
-          "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+          "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
       }
 
       console.log(`  → Firing: ${name}`);
 
-      const res      = await realFetch(listenUrl, { method: "POST", headers, body });
-      const resText  = await res.text();
+      const res     = await realFetch(listenUrl, { method: "POST", headers, body: raw });
+      const resText = await res.text();
       let   resBody;
       try { resBody = JSON.parse(resText); } catch { resBody = resText; }
 
@@ -284,32 +268,19 @@ async function runListenerTest(cwd, envFile) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export async function test(argv) {
-  const { flags }  = parseArgs(argv);
-  const cwd        = process.cwd();
-
-  // Resolve env file
-  const envFileName = flags.env ?? ".env";
-  const envFile     = resolve(cwd, envFileName);
-  if (!existsSync(envFile)) {
-    throw new Error(`Env file not found: ${envFile}`);
-  }
-
-  // Load env early so manifest placeholders resolve correctly
-  const { loadEnvFile } = await import("@integra/engine");
-  await loadEnvFile(envFile);
+  const cwd = process.cwd();
 
   const { readManifest } = await import("@integra/engine");
-  const manifest = await readManifest(cwd);
+  const manifest  = await readManifest(cwd);
   const lifecycle = manifest.lifecycle ?? null;
 
   console.log(`\nMock-testing integration: ${manifest.id ?? cwd}`);
-  if (flags.env) console.log(`Using env: ${envFileName}`);
 
   if (lifecycle === "listener") {
-    const result = await runListenerTest(cwd, envFile);
+    const result = await runListenerTest(cwd);
     if (!result.ok) process.exit(1);
   } else {
-    const result = await runOutboundTest(cwd, envFile);
+    const result = await runOutboundTest(cwd);
     if (!result.ok) process.exit(1);
   }
 }
