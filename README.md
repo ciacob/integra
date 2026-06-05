@@ -112,27 +112,21 @@ packages/
 
 ## Installation
 
-> **Note:** These packages are not yet published to npm.  
-> Once published, you'll be able to install globally with:
-> ```bash
-> npm install -g @int3gra/engine @int3gra/cli @int3gra/manager
-> ```
+```bash
+npm install -g @int3gra/engine @int3gra/cli @int3gra/manager
+```
 
-**For now, clone and install locally:**
+This gives you three global commands: `integra`, `integra-manager`, and `integra-engine`.
+
+**To work from source:**
 
 ```bash
-# Clone the repository
 git clone https://github.com/ciacob/integra.git
 cd integra
-
-# Install dependencies and link packages
 npm install
-npm run bootstrap  # if using lerna/workspaces, or manually link:
-
-# Link packages globally
 cd packages/engine && npm link
-cd ../cli && npm link
-cd ../manager && npm link
+cd ../cli          && npm link
+cd ../manager      && npm link
 ```
 
 ---
