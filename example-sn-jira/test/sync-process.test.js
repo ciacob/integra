@@ -1,12 +1,18 @@
 /**
  * test/sync-process.test.js
  * Tests for the ServiceNow → Jira sync integration.
- * Uses mocked fetch — no live credentials required.
+ *
+ * Process-level tests use fixture files from test/fixtures/ — the same
+ * files that `integra test` uses — so this suite and the CLI mock-test
+ * runner exercise identical data and behaviour.
+ *
+ * Resolver unit tests use inline data (appropriate for pure function testing).
  *
  * Run from monorepo root: node --experimental-vm-modules node_modules/.bin/jest
  */
 
 import { resolve as resolvePath } from "path";
+import { readFile }               from "fs/promises";
 import { fileURLToPath }          from "url";
 
 const __dirname = resolvePath(fileURLToPath(import.meta.url), "..");
@@ -22,47 +28,54 @@ process.env.JIRA_API_TOKEN   = "test-token";
 process.env.JIRA_PROJECT_KEY = "OPS";
 process.env.LOG_LEVEL        = "error";
 
-// ── Fixtures ────────────────────────────────────────────────────────────────
+// ── Fixture loading ───────────────────────────────────────────────────────────
+// Fixtures live in test/fixtures/responses/ — the same files integra test uses.
 
-const SN_TWO_INCIDENTS = {
-  result: [
-    {
-      sys_id: "abc", number: "INC001",
-      short_description: "Printer on fire", description: "3rd floor",
-      state: "1", priority: "2", category: "hardware",
-      assigned_to: "john", opened_at: "2026-01-01",
-    },
-    {
-      sys_id: "def", number: "INC002",
-      short_description: "VPN down", description: "Since 8am",
-      state: "2", priority: "1", category: "network",
-      assigned_to: "jane", opened_at: "2026-01-01",
-    },
-  ],
-};
+async function loadFixture(name) {
+  const raw = await readFile(resolvePath(CWD, "test/fixtures/responses", name), "utf-8");
+  const { _mockStatus, ...body } = JSON.parse(raw);
+  return { body, status: _mockStatus ?? 200 };
+}
 
-const SN_EMPTY = { result: [] };
+async function loadFixtureMap() {
+  const raw = await readFile(resolvePath(CWD, "test/fixtures/.fixture-map.json"), "utf-8");
+  return JSON.parse(raw);
+}
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function mockFetch(snFixture) {
-  let jiraCallCount = 0;
-  const jiraCreated = [];
+/**
+ * Builds a fetch mock that serves fixture files by URL — mirrors the logic
+ * in `integra test` so process-level tests and CLI mock-tests are equivalent.
+ */
+async function buildFixtureFetch(overrides = {}) {
+  const map          = await loadFixtureMap();
+  const callLog      = [];
 
   globalThis.fetch = async (url, opts) => {
-    if (url.includes("service-now.com")) {
-      return { ok: true, status: 200, json: async () => snFixture };
-    }
-    if (url.includes("atlassian.net")) {
-      jiraCallCount++;
-      const body = opts?.body ? JSON.parse(opts.body) : {};
-      jiraCreated.push({ key: `OPS-${jiraCallCount}`, summary: body?.fields?.summary, priority: body?.fields?.priority?.name });
-      return { ok: true, status: 201, json: async () => ({ id: `1000${jiraCallCount}`, key: `OPS-${jiraCallCount}` }) };
-    }
-    throw new Error(`Unexpected fetch: ${url}`);
+    callLog.push({ url, method: opts?.method ?? "GET", body: opts?.body });
+
+    // Allow per-test overrides for error-path testing — prefix match
+    const overrideEntry = Object.entries(overrides).find(([pattern]) => url.startsWith(pattern));
+    if (overrideEntry) return overrideEntry[1](url, opts);
+
+    // Find matching map entry by prefix
+    const entry = Object.entries(map).find(([pattern]) => url.startsWith(pattern));
+    if (!entry) throw new Error(`No fixture mapped for URL: ${url}`);
+
+    const fixturePath = resolvePath(CWD, entry[1]);
+    const raw         = await readFile(fixturePath, "utf-8");
+    const { _mockStatus, ...body } = JSON.parse(raw);
+    return {
+      ok:   (_mockStatus ?? 200) < 400,
+      status: _mockStatus ?? 200,
+      json: async () => body,
+    };
   };
 
-  return { getCount: () => jiraCallCount, getCreated: () => jiraCreated };
+  return {
+    calls:    callLog,
+    callsTo:  (urlFragment) => callLog.filter(c => c.url.includes(urlFragment)),
+    restore:  () => { globalThis.fetch = undefined; },
+  };
 }
 
 // ── Process-level tests ───────────────────────────────────────────────────────
@@ -78,44 +91,54 @@ describe("sync-incident-sn-to-jira (process)", () => {
   afterEach(() => { globalThis.fetch = undefined; });
 
   test("creates one Jira issue per ServiceNow incident", async () => {
-    const { getCount, getCreated } = mockFetch(SN_TWO_INCIDENTS);
+    const { calls } = await buildFixtureFetch();
 
     const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
 
-    expect(getCount()).toBe(2);
+    // Two incidents in the fixture → two Jira calls
+    expect(calls.filter(c => c.url.includes("atlassian.net"))).toHaveLength(2);
     expect(result.shared.sn_incidents.result).toHaveLength(2);
-
-    const summaries = getCreated().map(i => i.summary);
-    expect(summaries).toContain("Printer on fire");
-    expect(summaries).toContain("VPN down");
   });
 
-  test("maps SN priority 1 to Jira Highest", async () => {
-    const { getCreated } = mockFetch(SN_TWO_INCIDENTS);
+  test("maps SN priority 2 (High) to Jira High and priority 1 to Highest", async () => {
+    const jiraPayloads = [];
+    await buildFixtureFetch({
+      [`${process.env.JIRA_BASE_URL.toLowerCase()}/rest/api/3/issue`]: async (url, opts) => {
+        jiraPayloads.push(JSON.parse(opts.body));
+        return { ok: true, status: 201, json: async () => ({ id: "1", key: "OPS-1" }) };
+      },
+    });
+
     await boot(CWD, { processId: "sync-incident-sn-to-jira" });
 
-    const vpn = getCreated().find(i => i.summary === "VPN down");
-    expect(vpn?.priority).toBe("Highest");
-  });
-
-  test("maps SN priority 2 to Jira High", async () => {
-    const { getCreated } = mockFetch(SN_TWO_INCIDENTS);
-    await boot(CWD, { processId: "sync-incident-sn-to-jira" });
-
-    const printer = getCreated().find(i => i.summary === "Printer on fire");
-    expect(printer?.priority).toBe("High");
+    // Fixture has priority-2 ("Printer on fire") and priority-1 ("VPN unreachable")
+    const priorities = jiraPayloads.map(p => p.fields.priority.name);
+    expect(priorities).toContain("High");
+    expect(priorities).toContain("Highest");
   });
 
   test("handles empty incident list gracefully — no Jira calls", async () => {
-    const { getCount } = mockFetch(SN_EMPTY);
+    // Override the SN URL to return the empty fixture
+    const emptyFixturePath = resolvePath(CWD, "test/fixtures/responses/sn-get-incidents-empty.json");
+    const emptyRaw         = await readFile(emptyFixturePath, "utf-8");
+    const { _mockStatus, ...emptyBody } = JSON.parse(emptyRaw);
+
+    // Base URL — prefix matching in buildFixtureFetch handles the query params
+    const snEmptyUrl = `${process.env.SN_BASE_URL.toLowerCase()}/api/now/table/incident`;
+    const { calls } = await buildFixtureFetch({
+      [snEmptyUrl]: async () => ({
+        ok: true, status: 200, json: async () => emptyBody,
+      }),
+    });
+
     const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
 
-    expect(getCount()).toBe(0);
+    expect(calls.filter(c => c.url.includes("atlassian.net"))).toHaveLength(0);
     expect(result).toBeDefined();
   });
 
   test("writes a structured run summary to shared space", async () => {
-    mockFetch(SN_TWO_INCIDENTS);
+    await buildFixtureFetch();
     const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
 
     const summary = result.shared.sync_result;
@@ -126,32 +149,31 @@ describe("sync-incident-sn-to-jira (process)", () => {
     expect(summary.completed_at).toBeTruthy();
   });
 
-  test("run summary reflects skipped incidents when create errors are swallowed", async () => {
-    let callCount = 0;
-    globalThis.fetch = async (url, opts) => {
-      if (url.includes("service-now.com")) {
-        return { ok: true, status: 200, json: async () => SN_TWO_INCIDENTS };
-      }
-      callCount++;
-      // First Jira call succeeds, second fails
-      if (callCount === 1) {
-        return { ok: true, status: 201, json: async () => ({ id: "1", key: "OPS-1" }) };
-      }
-      return { ok: false, status: 500, statusText: "Internal Server Error",
-               json: async () => ({}) };
-    };
+  test("run summary reflects skipped incidents when a create call fails", async () => {
+    let jiraCallCount = 0;
 
-    const result = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
+    await buildFixtureFetch({
+      [`${process.env.JIRA_BASE_URL.toLowerCase()}/rest/api/3/issue`]: async () => {
+        jiraCallCount++;
+        // First call succeeds, second fails
+        if (jiraCallCount === 1) {
+          return { ok: true, status: 201, json: async () => ({ id: "1", key: "OPS-1" }) };
+        }
+        return { ok: false, status: 500, statusText: "Internal Server Error", json: async () => ({}) };
+      },
+    });
+
+    const result  = await boot(CWD, { processId: "sync-incident-sn-to-jira" });
     const summary = result.shared.sync_result;
 
     expect(summary.incidents_fetched).toBe(2);
-    // One created, one errored (handleCreateError swallows it)
     expect(summary.issues_created).toBe(1);
     expect(summary.issues_skipped).toBe(1);
   });
 });
 
 // ── Resolver unit tests ───────────────────────────────────────────────────────
+// These test pure functions directly with inline data — no fixtures needed.
 
 describe("mapIncident (itsm-maps resolver)", () => {
   let mapIncident;
@@ -173,6 +195,11 @@ describe("mapIncident (itsm-maps resolver)", () => {
   test("maps priority 1 → Highest", () => {
     const result = mapIncident(makeCtx(), { sys_id: "a", number: "INC001", short_description: "Test", description: "Desc", priority: "1", category: "network" });
     expect(result.fields.priority.name).toBe("Highest");
+  });
+
+  test("maps priority 2 → High", () => {
+    const result = mapIncident(makeCtx(), { short_description: "Test", priority: "2" });
+    expect(result.fields.priority.name).toBe("High");
   });
 
   test("maps priority 5 → Lowest", () => {

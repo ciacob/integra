@@ -7,7 +7,7 @@
       "short_description": "VPN unreachable for remote users",
       "description":       "Multiple remote users report inability to connect to VPN since 08:00.",
       "state":             "1",
-      "priority":          "2",
+      "priority":          "1",
       "category":          "network",
       "assigned_to":       "jane.smith",
       "opened_at":         "2026-06-04 08:00:00"
@@ -18,7 +18,7 @@
       "short_description": "Printer on fire in Building A",
       "description":       "The printer on the 3rd floor has caught fire.",
       "state":             "1",
-      "priority":          "3",
+      "priority":          "2",
       "category":          "hardware",
       "assigned_to":       "john.doe",
       "opened_at":         "2026-06-04 09:00:00"

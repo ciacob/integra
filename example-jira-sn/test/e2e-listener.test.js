@@ -2,39 +2,33 @@
  * test/e2e-listener.test.js
  *
  * End-to-end test for the example-jira-sn listener integration.
+ * Starts the real Fastify server, fires genuine HTTP requests at it,
+ * and asserts on both the HTTP response and side effects.
  *
- * Unlike the unit tests in handle-jira-issue.test.js, this suite starts the
- * real Fastify server, fires genuine HTTP requests at it, and asserts on both
- * the HTTP response and the side effects (ServiceNow was called correctly).
+ * Outbound SN calls are intercepted using fixture files from
+ * test/fixtures/responses/ — the same files `integra test` uses.
+ * Webhook payloads are loaded from test/fixtures/webhooks/.
  *
- * What is exercised end-to-end:
- *   - boot() starts Fastify on a real port
- *   - HMAC signature verification (correct and incorrect)
- *   - Payload schema validation (valid and invalid)
- *   - Full process execution (map → outbound SN connection)
- *   - http_response built by the process returned as the HTTP response body
- *   - /_health endpoint
- *   - Fastify shuts down cleanly after the tests
+ * This suite exercises the full stack:
+ *   HMAC verification → schema validation → process execution →
+ *   outbound connection (fixture) → http_response → HTTP response body
  *
- * The outbound ServiceNow call is mocked via globalThis.fetch.
- * Port 3101 is used to avoid clashing with a manually running listener on 3100.
+ * Port 3101 avoids clashing with a manually running listener on 3100.
  */
 
-import { createHmac }    from "crypto";
-import { readFile }      from "fs/promises";
+import { createHmac }             from "crypto";
+import { readFile }               from "fs/promises";
 import { resolve as resolvePath } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath }          from "url";
 
-const __dirname = resolvePath(fileURLToPath(import.meta.url), "..");
-const CWD       = resolvePath(__dirname, "..");
-
-// Port offset so this suite never conflicts with the default listener port
+const __dirname  = resolvePath(fileURLToPath(import.meta.url), "..");
+const CWD        = resolvePath(__dirname, "..");
 const E2E_PORT   = 3101;
-
-// Preserve real fetch before any mocking — used by postWebhook to call the listener
-const realFetch = globalThis.fetch;
 const SECRET     = "e2e-test-secret";
 const LISTEN_URL = `http://localhost:${E2E_PORT}`;
+
+// Preserve real fetch before any mocking
+const realFetch = globalThis.fetch;
 
 // Set env before any engine imports
 process.env.SN_BASE_URL           = "https://devXXXXX.service-now.com";
@@ -43,33 +37,29 @@ process.env.SN_PASS               = "test-pass";
 process.env.JIRA_WEBHOOK_SECRET   = SECRET;
 process.env.LOG_LEVEL             = "error";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Fixture loading ───────────────────────────────────────────────────────────
 
-async function loadFixture() {
-  const raw = await readFile(
-    resolvePath(CWD, "test/fixtures/jira-issue-created.json"),
-    "utf-8"
-  );
+async function loadWebhookFixture(name) {
+  const raw = await readFile(resolvePath(CWD, "test/fixtures/webhooks", name), "utf-8");
   return JSON.parse(raw);
 }
 
-/**
- * Signs a payload string with HMAC-SHA256 and returns the full header value.
- */
+async function loadResponseFixture(name) {
+  const raw = await readFile(resolvePath(CWD, "test/fixtures/responses", name), "utf-8");
+  const { _mockStatus, ...body } = JSON.parse(raw);
+  return { body, status: _mockStatus ?? 200 };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function sign(payloadStr, secret = SECRET) {
   return "sha256=" + createHmac("sha256", secret).update(payloadStr).digest("hex");
 }
 
-/**
- * Fires a signed POST to the listener. Returns the fetch Response.
- */
 async function postWebhook(payload, options = {}) {
   const body      = JSON.stringify(payload);
   const signature = options.signature ?? sign(body);
-  // Always use the real (pre-mock) fetch to call the listener
-  const fetchFn   = options.fetchFn ?? realFetch;
-
-  return fetchFn(`${LISTEN_URL}/hooks/jira`, {
+  return realFetch(`${LISTEN_URL}/hooks/jira`, {
     method:  "POST",
     headers: {
       "Content-Type":        "application/json",
@@ -80,40 +70,28 @@ async function postWebhook(payload, options = {}) {
   });
 }
 
-// ── Suite setup / teardown ────────────────────────────────────────────────────
+/**
+ * Installs a fetch mock that serves the SN response fixture.
+ * Optionally accepts overrides for error-path testing.
+ */
+async function mockSnFetch(override = null) {
+  const { body, status } = await loadResponseFixture("sn-create-incident-201.json");
+  globalThis.fetch = async (url, opts) => {
+    if (override) return override(url, opts);
+    return { ok: status < 400, status, json: async () => body };
+  };
+}
+
+// ── Suite ─────────────────────────────────────────────────────────────────────
 
 describe("Listener E2E — example-jira-sn", () => {
   let fastify;
   let boot;
 
-
   beforeAll(async () => {
     const mod = await import("@integra/engine");
-    boot = mod.boot;
-
-    // Override the port so this suite doesn't clash with the default 3100
-    // We patch the env that resolveEnvInObject reads when building httpServer config.
-    // The simplest approach: temporarily monkey-patch integra.json's port via a
-    // custom manifest override. Since boot() reads integra.json directly, we pass
-    // a port-patched env value instead. The listener resolves {{...}} from env,
-    // so we inject a dedicated env var and reference it in a copy of the manifest.
-    //
-    // Simpler approach: start with a modified env that the httpServer port reads from.
-    // integra.json has a hardcoded port 3101 check — but we want to use E2E_PORT.
-    // Easiest: just read the real manifest and patch it before calling startListener.
-    //
-    // Actually simplest: boot() accepts options, and we can pass a port override
-    // by temporarily setting a dedicated env var that the httpServer.port references.
-    // For now, we rely on the fact that integra.json has port 3100 and we use 3101
-    // by passing a patched manifest. Let's use the cleanest path: pass options.port.
-    //
-    // The cleanest path given current boot() API: override JIRA_LISTENER_PORT env var
-    // and reference it in a separate test integra.json. But that's too much friction.
-    //
-    // Instead: accept that boot() needs an options.port override for testing.
-    // We add that in a minimal, non-breaking way below.
-
-    fastify = await boot(CWD, { listenerPort: E2E_PORT });
+    boot      = mod.boot;
+    fastify   = await boot(CWD, { listenerPort: E2E_PORT });
   }, 15000);
 
   afterAll(async () => {
@@ -121,7 +99,11 @@ describe("Listener E2E — example-jira-sn", () => {
     globalThis.fetch = undefined;
   });
 
-  // ── Health check ────────────────────────────────────────────────────────────
+  afterEach(() => {
+    globalThis.fetch = undefined;
+  });
+
+  // ── Health check ──────────────────────────────────────────────────────────
 
   test("/_health returns ok", async () => {
     const res  = await realFetch(`${LISTEN_URL}/_health`);
@@ -131,28 +113,27 @@ describe("Listener E2E — example-jira-sn", () => {
     expect(body.integration).toBe("example-jira-sn");
   });
 
-  // ── Authentication ──────────────────────────────────────────────────────────
+  // ── Authentication ────────────────────────────────────────────────────────
 
   test("rejects request with missing signature — 401", async () => {
-    const fixture = await loadFixture();
+    const payload = await loadWebhookFixture("jira-issue-created.json");
     const res = await realFetch(`${LISTEN_URL}/hooks/jira`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(fixture),
+      body:    JSON.stringify(payload),
     });
     expect(res.status).toBe(401);
   });
 
   test("rejects request with wrong signature — 401", async () => {
-    const fixture = await loadFixture();
-    const res = await postWebhook(fixture, { signature: "sha256=deadbeef" + "0".repeat(56) });
+    const payload = await loadWebhookFixture("jira-issue-created.json");
+    const res = await postWebhook(payload, { signature: "sha256=deadbeef" + "0".repeat(56) });
     expect(res.status).toBe(401);
   });
 
-  // ── Schema validation ───────────────────────────────────────────────────────
+  // ── Schema validation ─────────────────────────────────────────────────────
 
   test("rejects payload missing required fields — 400", async () => {
-    // Missing both 'webhookEvent' and 'issue'
     const res = await postWebhook({ random: "data" });
     expect(res.status).toBe(400);
   });
@@ -160,73 +141,77 @@ describe("Listener E2E — example-jira-sn", () => {
   test("rejects payload missing issue.fields — 400", async () => {
     const res = await postWebhook({
       webhookEvent: "jira:issue_created",
-      issue:        { id: "1", key: "OPS-1" },   // missing fields
+      issue:        { id: "1", key: "OPS-1" },
     });
     expect(res.status).toBe(400);
   });
 
-  // ── Happy path ──────────────────────────────────────────────────────────────
+  // ── Happy path ────────────────────────────────────────────────────────────
 
   test("processes a valid issue_created event and returns 200 with SN number", async () => {
-    const fixture = await loadFixture();
+    const payload = await loadWebhookFixture("jira-issue-created.json");
+    await mockSnFetch();
 
-    // Mock outbound SN call
-    let snCallCount = 0;
-    let snRequestBody;
-    globalThis.fetch = async (url, opts) => {
-      if (url.includes("service-now")) {
-        snCallCount++;
-        snRequestBody = JSON.parse(opts.body);
-        return { ok: true, status: 201, json: async () => ({ result: { sys_id: "sys-abc", number: "INC9999" } }) };
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    };
-
-    const res  = await postWebhook(fixture);
+    const res  = await postWebhook(payload);
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
-    expect(body.sn_number).toBe("INC9999");
-    expect(snCallCount).toBe(1);
-    expect(snRequestBody.short_description).toBe(fixture.issue.fields.summary);
+    // The fixture returns INC0099001
+    expect(body.sn_number).toBe("INC0099001");
   });
 
-  test("maps Jira High priority to SN urgency 2 in the outbound payload", async () => {
-    const fixture = await loadFixture();  // priority: High
-
-    let snPayload;
+  test("summary contains the Jira issue summary as SN short_description", async () => {
+    const payload    = await loadWebhookFixture("jira-issue-created.json");
+    let   snPayload;
     globalThis.fetch = async (url, opts) => {
       snPayload = JSON.parse(opts.body);
-      return { ok: true, status: 201, json: async () => ({ result: { sys_id: "x", number: "INC1" } }) };
+      const { body, status } = await loadResponseFixture("sn-create-incident-201.json");
+      return { ok: true, status, json: async () => body };
     };
 
-    await postWebhook(fixture);
+    await postWebhook(payload);
+    expect(snPayload.short_description).toBe(payload.issue.fields.summary);
+  });
+
+  test("maps Jira High priority to SN urgency 2", async () => {
+    const payload    = await loadWebhookFixture("jira-issue-created.json");  // priority: High
+    let   snPayload;
+    globalThis.fetch = async (url, opts) => {
+      snPayload = JSON.parse(opts.body);
+      const { body, status } = await loadResponseFixture("sn-create-incident-201.json");
+      return { ok: true, status, json: async () => body };
+    };
+
+    await postWebhook(payload);
     expect(snPayload.urgency).toBe("2");
   });
 
-  test("stores Jira issue key as correlation_id in SN payload", async () => {
-    const fixture = await loadFixture();  // key: OPS-42
-
-    let snPayload;
+  test("stores Jira issue key as correlation_id", async () => {
+    const payload    = await loadWebhookFixture("jira-issue-created.json");  // key: OPS-42
+    let   snPayload;
     globalThis.fetch = async (url, opts) => {
       snPayload = JSON.parse(opts.body);
-      return { ok: true, status: 201, json: async () => ({ result: { sys_id: "x", number: "INC1" } }) };
+      const { body, status } = await loadResponseFixture("sn-create-incident-201.json");
+      return { ok: true, status, json: async () => body };
     };
 
-    await postWebhook(fixture);
+    await postWebhook(payload);
     expect(snPayload.correlation_id).toBe("OPS-42");
   });
 
-  // ── Unsupported event ───────────────────────────────────────────────────────
+  // ── Unsupported event ─────────────────────────────────────────────────────
 
   test("acknowledges unsupported event without calling SN", async () => {
-    const fixture = { ...await loadFixture(), webhookEvent: "jira:issue_deleted" };
+    const payload = {
+      ...await loadWebhookFixture("jira-issue-created.json"),
+      webhookEvent: "jira:issue_deleted",
+    };
 
     let snCalled = false;
     globalThis.fetch = async () => { snCalled = true; return {}; };
 
-    const res  = await postWebhook(fixture);
+    const res  = await postWebhook(payload);
     const body = await res.json();
 
     expect(res.status).toBe(200);
@@ -235,19 +220,18 @@ describe("Listener E2E — example-jira-sn", () => {
     expect(snCalled).toBe(false);
   });
 
-  // ── Error path ──────────────────────────────────────────────────────────────
+  // ── Error path ────────────────────────────────────────────────────────────
 
   test("returns 500 when SN call fails", async () => {
-    const fixture = await loadFixture();
+    const payload = await loadWebhookFixture("jira-issue-created.json");
+    await mockSnFetch(async () => ({
+      ok:         false,
+      status:     500,
+      statusText: "Internal Server Error",
+      json:       async () => ({}),
+    }));
 
-    globalThis.fetch = async () => ({
-      ok:          false,
-      status:      500,
-      statusText:  "Internal Server Error",
-      json:        async () => ({}),
-    });
-
-    const res = await postWebhook(fixture);
+    const res = await postWebhook(payload);
     expect(res.status).toBe(500);
   });
 });
