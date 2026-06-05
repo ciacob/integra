@@ -89,7 +89,7 @@ describe("Listener E2E — example-jira-sn", () => {
   let boot;
 
   beforeAll(async () => {
-    const mod = await import("@integra/engine");
+    const mod = await import("@int3gra/engine");
     boot      = mod.boot;
     fastify   = await boot(CWD, { listenerPort: E2E_PORT });
   }, 15000);

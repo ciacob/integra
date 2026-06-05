@@ -1,5 +1,5 @@
 /**
- * @integra/manager - commands/logs.js
+ * @int3gra/manager - commands/logs.js
  * Tails the out.log for a given integration.
  */
 

@@ -1,8 +1,8 @@
 {
-  "name": "@integra/engine",
+  "name": "@int3gra/engine",
   "version": "1.0.0",
   "type": "module",
-  "description": "The integra runtime engine",
+  "description": "The int3gra runtime engine",
   "main": "src/index.js",
   "bin": {
     "integra-engine": "src/index.js"
@@ -27,5 +27,13 @@
     "fastify": "^5.0.0",
     "file-type": "^21.0.0"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/",
+    "schemas/",
+    "README.md"
+  ]
 }

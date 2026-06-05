@@ -1,5 +1,5 @@
 /**
- * @integra/engine - listener.js
+ * @int3gra/engine - listener.js
  *
  * Fastify-based HTTP listener for integrations with lifecycle: "listener".
  *

@@ -1,5 +1,5 @@
 /**
- * @integra/cli - commands/run.js
+ * @int3gra/cli - commands/run.js
  * Executes a process in the current integration directory.
  *
  * Usage:
@@ -7,7 +7,7 @@
  *   integra run <process-id> --env .env.dev
  */
 
-import { boot }       from "@integra/engine";
+import { boot }       from "@int3gra/engine";
 import { parseArgs }  from "../args.js";
 import { resolve }    from "path";
 import { existsSync } from "fs";

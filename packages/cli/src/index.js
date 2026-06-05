@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @integra/cli - index.js
+ * @int3gra/cli - index.js
  * Minimal command dispatcher. No framework needed.
  */
 
@@ -16,7 +16,7 @@ const commands = { init, validate, run, test, ping };
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
-integra — integration engine CLI
+int3gra — integration engine CLI
 
 Commands:
   integra init <name>              Scaffold a new integration environment

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @integra/engine - index.js
+ * @int3gra/engine - index.js
  * Entry point for the engine, both as a CLI binary (spawned by PM2)
  * and as an importable module for the CLI and manager.
  */

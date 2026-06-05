@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id":     "https://integra.dev/schemas/manifest.json",
+  "$id":     "https://int3gra.dev/schemas/manifest.json",
   "title":   "integra.json — Integration Manifest",
   "type":    "object",
   "required": ["id", "entry"],

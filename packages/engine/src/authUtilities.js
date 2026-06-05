@@ -2,7 +2,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
 /**
- * @integra/engine - authUtilities.js
+ * @int3gra/engine - authUtilities.js
  *
  * Pure, tested utility functions for authentication.
  * Used internally by the engine for the three supported auth types,

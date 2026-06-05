@@ -1,5 +1,5 @@
 /**
- * @integra/engine - loader.js
+ * @int3gra/engine - loader.js
  * Reads, validates, and registers all component JSON files.
  * Builds three registries: connections, maps, processes.
  * Validates each file against its JSON Schema using ajv.

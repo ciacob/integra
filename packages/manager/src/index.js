@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @integra/manager - index.js
+ * @int3gra/manager - index.js
  * CLI entry point for the integration manager.
  */
 

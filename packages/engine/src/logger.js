@@ -1,5 +1,5 @@
 /**
- * @integra/engine - logger.js
+ * @int3gra/engine - logger.js
  * Structured, newline-delimited JSON logger.
  * Writes to stdout. Level controlled by LOG_LEVEL env var.
  * Default level: info. Available: debug, info, warn, error.

@@ -1,5 +1,5 @@
 /**
- * @integra/manager - manager.js
+ * @int3gra/manager - manager.js
  * Core PM2 integration. Connects, dispatches, disconnects.
  */
 

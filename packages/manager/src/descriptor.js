@@ -1,5 +1,5 @@
 /**
- * @integra/manager - descriptor.js
+ * @int3gra/manager - descriptor.js
  * Builds PM2 process descriptors from integration registry entries.
  *
  * Per-lifecycle PM2 strategy:
@@ -25,7 +25,7 @@ const require = createRequire(import.meta.url);
 
 function resolveEngineBin() {
   try {
-    return require.resolve("@integra/engine/src/index.js");
+    return require.resolve("@int3gra/engine/src/index.js");
   } catch {
     return resolve(import.meta.dirname ?? ".", "../../engine/src/index.js");
   }

@@ -1,5 +1,5 @@
 /**
- * @integra/cli - args.js
+ * @int3gra/cli - args.js
  * Minimal argument parsing utilities shared across CLI commands.
  */
 

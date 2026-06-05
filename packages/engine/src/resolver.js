@@ -1,5 +1,5 @@
 /**
- * @integra/engine - resolver.js
+ * @int3gra/engine - resolver.js
  * Resolves {{placeholders}} and {{fn:calls}} in any value.
  *
  * Syntax:

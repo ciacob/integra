@@ -1,5 +1,5 @@
 /**
- * @integra/cli - commands/init.js
+ * @int3gra/cli - commands/init.js
  * Scaffolds a new integration environment directory.
  */
 

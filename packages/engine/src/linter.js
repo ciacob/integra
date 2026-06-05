@@ -1,5 +1,5 @@
 /**
- * @integra/engine - linter.js
+ * @int3gra/engine - linter.js
  * Structural validation of process JSON files.
  * Checks for loose else, break/continue outside while, and other logical errors.
  * Runs before execution. Halts on any error found.

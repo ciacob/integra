@@ -1,5 +1,5 @@
 /**
- * @integra/engine - error.js
+ * @int3gra/engine - error.js
  * Error types and bubbling envelope for the engine.
  */
 

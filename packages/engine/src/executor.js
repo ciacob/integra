@@ -1,5 +1,5 @@
 /**
- * @integra/engine - executor.js
+ * @int3gra/engine - executor.js
  * Walks processes, flows, and steps — dispatching each to the correct handler.
  * Manages context, resolves values, bubbles errors, and honors flow control signals.
  */

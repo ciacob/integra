@@ -1,5 +1,5 @@
 /**
- * @integra/engine - binaryUtilities.js
+ * @int3gra/engine - binaryUtilities.js
  *
  * Pure, tested utility functions for binary content transfer.
  * Used internally by the engine for body_type and response_type handling,

@@ -84,7 +84,7 @@ describe("sync-incident-sn-to-jira (process)", () => {
   let boot;
 
   beforeAll(async () => {
-    const mod = await import("@integra/engine");
+    const mod = await import("@int3gra/engine");
     boot = mod.boot;
   });
 

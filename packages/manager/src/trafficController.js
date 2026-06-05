@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @integra/manager - trafficController.js
+ * @int3gra/manager - trafficController.js
  *
  * A short-lived process spawned by PM2 on a cron schedule.
  * Its sole job: decide whether the integration it watches is safe to run,

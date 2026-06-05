@@ -1,13 +1,21 @@
 {
-  "name": "@integra/cli",
+  "name": "@int3gra/cli",
   "version": "1.0.0",
   "type": "module",
-  "description": "Developer tooling for integra integrations",
+  "description": "Developer tooling for int3gra integrations",
   "bin": {
     "integra": "src/index.js"
   },
   "dependencies": {
-    "@integra/engine": "*"
+    "@int3gra/engine": "*"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/",
+    "templates/",
+    "README.md"
+  ]
 }

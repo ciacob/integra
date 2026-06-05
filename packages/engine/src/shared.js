@@ -1,5 +1,5 @@
 /**
- * @integra/engine - shared.js
+ * @int3gra/engine - shared.js
  * In-memory shared space scoped to a single process run.
  * Acts as the data bus between all steps and components.
  */

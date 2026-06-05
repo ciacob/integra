@@ -58,7 +58,7 @@ flowchart TB
         CN & MP -->|"delegates complex\nlogic to"| RS
     end
  
-    subgraph Engine["@integra/engine — stock, never changes"]
+    subgraph Engine["@int3gra/engine — stock, never changes"]
         direction TB
         LD["loader\nvalidates JSON\nagainst schemas"]
         LN["linter\nchecks structure\nbefore run"]
@@ -103,9 +103,9 @@ Every value in any component JSON can be:
 
 ```
 packages/
-  engine/     — the runtime (@integra/engine)
-  cli/        — developer tooling (@integra/cli)
-  manager/    — PM2-based supervisor (@integra/manager)
+  engine/     — the runtime (@int3gra/engine)
+  cli/        — developer tooling (@int3gra/cli)
+  manager/    — PM2-based supervisor (@int3gra/manager)
 ```
 
 ---
@@ -115,7 +115,7 @@ packages/
 > **Note:** These packages are not yet published to npm.  
 > Once published, you'll be able to install globally with:
 > ```bash
-> npm install -g @integra/engine @integra/cli @integra/manager
+> npm install -g @int3gra/engine @int3gra/cli @int3gra/manager
 > ```
 
 **For now, clone and install locally:**
@@ -475,7 +475,7 @@ import {
   isTokenExpired,
   fetchClientCredentialsToken,
   getOrRefreshToken,
-} from "@integra/engine/authUtilities";
+} from "@int3gra/engine/authUtilities";
 ```
 
 Use `getOrRefreshToken` when you need OAuth CC logic inside a `custom` resolver — it handles expiry checks, fetching, and persistence in one call. All functions accept injectable dependencies (`fetchFn`, `nowMs`) so they are straightforwardly unit-testable.
@@ -556,7 +556,7 @@ For anything else, omit `auth` and handle verification in your entry process res
 `verifyHmacSignature` is exported from `authUtilities.js` for use in custom resolver logic:
 
 ```javascript
-import { verifyHmacSignature } from "@integra/engine/authUtilities";
+import { verifyHmacSignature } from "@int3gra/engine/authUtilities";
 
 export function myCustomAuth(ctx) {
   const raw = ctx.input.__rawBody;
@@ -728,13 +728,13 @@ import {
   parseResponseMeta,        // extracts attachment metadata from response headers
   checkIdempotency,         // pure: checks a registry object for a known key
   registerIdempotency,      // pure: returns a new registry with the key added
-} from "@integra/engine/binaryUtilities";
+} from "@int3gra/engine/binaryUtilities";
 ```
 
 A complete inbound resolver using the delegatee:
 
 ```javascript
-import { receiveAttachment } from "@integra/engine/binaryUtilities";
+import { receiveAttachment } from "@int3gra/engine/binaryUtilities";
 
 export async function snStoreAttachment(ctx) {
   const record = await receiveAttachment(ctx, { dir: "attachments" });
@@ -746,7 +746,7 @@ export async function snStoreAttachment(ctx) {
 A complete outbound resolver:
 
 ```javascript
-import { prepareAttachmentUpload, buildMultipartFields } from "@integra/engine/binaryUtilities";
+import { prepareAttachmentUpload, buildMultipartFields } from "@int3gra/engine/binaryUtilities";
 
 export async function snPrepareUpload(ctx) {
   const upload = await prepareAttachmentUpload(ctx);

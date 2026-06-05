@@ -1,14 +1,22 @@
 {
-  "name": "@integra/manager",
+  "name": "@int3gra/manager",
   "version": "1.0.0",
   "type": "module",
-  "description": "Integration supervisor — spawns, monitors, and manages integra instances via PM2",
+  "description": "Integration supervisor \u2014 spawns, monitors, and manages int3gra instances via PM2",
   "bin": {
     "integra-manager": "src/index.js"
   },
   "dependencies": {
-    "@integra/engine": "*",
+    "@int3gra/engine": "*",
     "pm2": "^5.3.0"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "src/",
+    "schemas/",
+    "README.md"
+  ]
 }

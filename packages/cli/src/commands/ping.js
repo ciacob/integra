@@ -1,5 +1,5 @@
 /**
- * @integra/cli - commands/ping.js
+ * @int3gra/cli - commands/ping.js
  *
  * Fires one or more connections and reports whether each remote system
  * is reachable with the configured credentials.
@@ -94,11 +94,11 @@ export async function ping(argv) {
     throw new Error(`Env file not found: ${envFile}`);
   }
 
-  const { loadEnvFile }               = await import("@integra/engine");
-  const { load, collectResolverPaths } = await import("@integra/engine/loader");
-  const { loadResolvers, resolve: resolveValue } = await import("@integra/engine/resolver");
-  const { resolveAuthBlock }          = await import("@integra/engine/executor");
-  const { createStorage }             = await import("@integra/engine/storage");
+  const { loadEnvFile }               = await import("@int3gra/engine");
+  const { load, collectResolverPaths } = await import("@int3gra/engine/loader");
+  const { loadResolvers, resolve: resolveValue } = await import("@int3gra/engine/resolver");
+  const { resolveAuthBlock }          = await import("@int3gra/engine/executor");
+  const { createStorage }             = await import("@int3gra/engine/storage");
 
   await loadEnvFile(envFile);
 

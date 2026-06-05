@@ -1,5 +1,5 @@
 /**
- * @integra/manager - logger.js
+ * @int3gra/manager - logger.js
  * Structured logger for the manager process itself.
  * Same format as the engine logger for a coherent log stream.
  */

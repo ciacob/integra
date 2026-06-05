@@ -1,5 +1,5 @@
 /**
- * @integra/manager - registry.js
+ * @int3gra/manager - registry.js
  * Reads, validates, and writes the integration registry (registry.json).
  */
 

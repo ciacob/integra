@@ -1,5 +1,5 @@
 /**
- * @integra/engine - storage.js
+ * @int3gra/engine - storage.js
  *
  * File-backed key/value store scoped to an integration instance.
  * Data is persisted to storage/store.json inside the integration directory.

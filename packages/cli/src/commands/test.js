@@ -1,5 +1,5 @@
 /**
- * @integra/cli - commands/test.js
+ * @int3gra/cli - commands/test.js
  *
  * Mock-test runner for integra integrations.
  * No real HTTP calls are ever made — all outbound connections are intercepted
@@ -120,7 +120,7 @@ function buildMockFetch(fixtureMap, responseFiles, cwd) {
 // ── Outbound test runner ───────────────────────────────────────────────────────
 
 async function runOutboundTest(cwd) {
-  const { boot, readManifest } = await import("@integra/engine");
+  const { boot, readManifest } = await import("@int3gra/engine");
 
   const manifest       = await readManifest(cwd);
   const entryProcessId = manifest.entry;
@@ -162,7 +162,7 @@ async function runOutboundTest(cwd) {
 // ── Inbound (listener) test runner ────────────────────────────────────────────
 
 async function runListenerTest(cwd) {
-  const { boot, readManifest } = await import("@integra/engine");
+  const { boot, readManifest } = await import("@int3gra/engine");
 
   const manifest      = await readManifest(cwd);
   const webhookFiles  = await listFixtures(resolve(cwd, WEBHOOKS_DIR));
@@ -249,7 +249,7 @@ async function runListenerTest(cwd) {
 export async function test(argv) {
   const cwd = process.cwd();
 
-  const { readManifest } = await import("@integra/engine");
+  const { readManifest } = await import("@int3gra/engine");
   const manifest  = await readManifest(cwd);
   const lifecycle = manifest.lifecycle ?? null;
 

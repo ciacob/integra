@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://integra.dev/schemas/connection.json",
+  "$id": "https://int3gra.dev/schemas/connection.json",
   "title": "Connection Component",
   "description": "Describes a REST API connection — how to talk to a system and fetch or push data.",
   "type": "object",

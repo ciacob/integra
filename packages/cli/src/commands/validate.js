@@ -1,12 +1,12 @@
 /**
- * @integra/cli - commands/validate.js
+ * @int3gra/cli - commands/validate.js
  * Validates integra.json, all component JSON files, and structural correctness.
  * No execution — safe to run at any time.
  */
 
-import { load, validateManifest } from "@integra/engine/loader";
-import { lint }                   from "@integra/engine/linter";
-import { readManifest }           from "@integra/engine";
+import { load, validateManifest } from "@int3gra/engine/loader";
+import { lint }                   from "@int3gra/engine/linter";
+import { readManifest }           from "@int3gra/engine";
 
 export async function validate([]) {
   const cwd = process.cwd();
