@@ -1,0 +1,20 @@
+{
+  "id":                "no-op",
+  "short_description": "Connectivity check — fetches one incident sys_id to verify SN credentials",
+  "purpose":           "read",
+  "auth": {
+    "type": "basic",
+    "user": "{{env.SN_USER}}",
+    "pass": "{{env.SN_PASS}}"
+  },
+  "request": {
+    "type":     "GET",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/table/incident",
+    "headers":  { "Accept": "application/json" },
+    "query": {
+      "sysparm_limit":  "1",
+      "sysparm_fields": "sys_id"
+    }
+  },
+  "resolver": "resolvers/servicenow.js"
+}

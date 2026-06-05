@@ -240,6 +240,70 @@ The manager's `status` command shows which env file each running integration was
 
 ---
 
+## Connectivity check (`integra ping`)
+
+Verifies that an integration's remote systems are reachable with the configured credentials — without running any process or fixture.
+
+You provide the check. Create `connections/no-op.json` — a connection component whose request is safe to fire at any time (read-only, no side effects). `integra ping` loads it, resolves auth and endpoint from your env, fires the request, and reports the HTTP status.
+
+```bash
+integra ping
+integra ping --env .env.dev
+```
+
+Example output:
+
+```
+Pinging: Connectivity check — fetches one incident sys_id to verify SN credentials
+
+  GET https://devxxxxx.service-now.com/api/now/table/incident?sysparm_limit=1
+  Authorization: Basic ****
+
+  ✓ HTTP 200 — reachable (143ms)
+```
+
+### The no-op connection
+
+Name the connection `no-op` — that is the fixed id `integra ping` looks for. If it is absent, the command errors with a clear message and example.
+
+ServiceNow example — fetches one record:
+
+```json
+{
+  "id":      "no-op",
+  "purpose": "read",
+  "auth":    { "type": "basic", "user": "{{env.SN_USER}}", "pass": "{{env.SN_PASS}}" },
+  "request": {
+    "type":     "GET",
+    "endpoint": "{{env.SN_BASE_URL}}/api/now/table/incident",
+    "headers":  { "Accept": "application/json" },
+    "query":    { "sysparm_limit": "1", "sysparm_fields": "sys_id" }
+  },
+  "resolver": "resolvers/servicenow.js"
+}
+```
+
+Jira example — fetches the current user (zero side effects):
+
+```json
+{
+  "id":      "no-op",
+  "purpose": "read",
+  "auth":    { "type": "basic", "user": "{{env.JIRA_USER}}", "pass": "{{env.JIRA_API_TOKEN}}" },
+  "request": {
+    "type":     "GET",
+    "endpoint": "{{env.JIRA_BASE_URL}}/rest/api/3/myself",
+    "headers":  { "Accept": "application/json" }
+  }
+}
+```
+
+The resolver field is only needed if your auth type is `custom`. For `basic`, `api_key`, `bearer`, and `oauth2_client_credentials` the engine handles auth natively — no resolver required.
+
+A 4xx or 5xx response exits with code 1. A network error (DNS, timeout, refused) also exits with code 1 with a clear message. Any 2xx exits with code 0.
+
+---
+
 ## Manager workflow
 
 From the directory containing `registry.json`:

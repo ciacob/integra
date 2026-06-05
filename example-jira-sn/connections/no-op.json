@@ -1,0 +1,15 @@
+{
+  "id":                "no-op",
+  "short_description": "Connectivity check — fetches current Jira user to verify credentials",
+  "purpose":           "read",
+  "auth": {
+    "type": "basic",
+    "user": "{{env.JIRA_USER}}",
+    "pass": "{{env.JIRA_API_TOKEN}}"
+  },
+  "request": {
+    "type":     "GET",
+    "endpoint": "{{env.JIRA_BASE_URL}}/rest/api/3/myself",
+    "headers":  { "Accept": "application/json" }
+  }
+}

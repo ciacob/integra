@@ -37,10 +37,6 @@ const FIXTURE_MAP     = "test/fixtures/.fixture-map.json";
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
 
-/**
- * Lists all non-.gitkeep files in a directory, excluding .disabled/ children.
- * Returns full absolute paths.
- */
 async function listFixtures(dir) {
   try {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -52,10 +48,6 @@ async function listFixtures(dir) {
   }
 }
 
-/**
- * Loads .fixture-map.json if present. Returns null if absent.
- * Throws with a clear message if the file exists but is malformed.
- */
 async function loadFixtureMap(cwd) {
   const mapPath = resolve(cwd, FIXTURE_MAP);
   if (!existsSync(mapPath)) return null;
@@ -67,10 +59,6 @@ async function loadFixtureMap(cwd) {
   }
 }
 
-/**
- * Resolves the fixture file to use for a given URL.
- * Pure — takes the fixture map and file list, returns a path or throws.
- */
 export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn = existsSync) {
   if (responseFiles.length === 0) {
     throw new Error(
@@ -83,7 +71,6 @@ export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn 
     return responseFiles[0];
   }
 
-  // Multiple fixtures — map is required
   if (!fixtureMap) {
     throw new Error(
       `Multiple response fixtures found but no .fixture-map.json.\n` +
@@ -91,7 +78,6 @@ export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn 
     );
   }
 
-  // Find matching entry — support exact match and prefix match
   const match = Object.entries(fixtureMap).find(([pattern]) => url.startsWith(pattern));
 
   if (!match) {
@@ -111,10 +97,6 @@ export function resolveResponseFixture(url, fixtureMap, responseFiles, existsFn 
   return fixturePath;
 }
 
-/**
- * Builds a mock fetch function that intercepts all outbound calls
- * and returns fixture bodies. Throws on any unmapped URL.
- */
 function buildMockFetch(fixtureMap, responseFiles, cwd) {
   return async (url, opts) => {
     const fixturePath = resolveResponseFixture(url, fixtureMap, responseFiles.map(f => resolve(cwd, f)));
@@ -194,7 +176,6 @@ async function runListenerTest(cwd) {
     );
   }
 
-  // If the listener process also makes outbound calls, response fixtures are needed
   const hasOutbound = responseFiles.length > 0;
 
   console.log(`\n  Webhook fixtures : ${webhookFiles.length}`);
@@ -205,13 +186,11 @@ async function runListenerTest(cwd) {
   }
   console.log();
 
-  // Install mock fetch for outbound calls ONLY — real fetch used for listener calls
   const realFetch  = globalThis.fetch;
   if (hasOutbound) {
     globalThis.fetch = buildMockFetch(fixtureMap, responseFiles, cwd);
   }
 
-  // Use a test port to avoid clashing with any running listener
   const TEST_PORT = (manifest.httpServer?.port ?? 3100) + 1000;
 
   let fastify;

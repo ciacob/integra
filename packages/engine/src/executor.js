@@ -275,7 +275,7 @@ async function executeConnection(component, ctx, registry) {
  * Handles the custom type by delegating to the resolver fn.
  * Returns {} when auth is null/undefined.
  */
-async function resolveAuthBlock(auth, connId, ctx) {
+export async function resolveAuthBlock(auth, connId, ctx) {
   if (!auth) return {};
 
   if (auth.type === "custom") {
