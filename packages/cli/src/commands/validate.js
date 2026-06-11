@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * @int3gra/cli - commands/validate.js
  * Validates integra.json, all component JSON files, and structural correctness.

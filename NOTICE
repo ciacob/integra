@@ -1,0 +1,46 @@
+integra — Configuration-Driven Integration Engine
+Copyright © 2026 Claudius Tiberiu Iacob
+
+Licensed under the Business Source License 1.1 (BSL 1.1).
+See the LICENSE file in the root of this repository for the full license text.
+
+-----------------------------------------------------------------------------
+
+Plain-English Summary
+
+You may use, modify, and integrate this software — including in commercial
+contexts and as part of services or products you offer to third parties —
+provided that integra itself is not the product or service being offered.
+
+Specifically, you may not distribute, sell, license, or offer integra, or
+any derivative of it, as a standalone tool, platform, or integration service
+in its own right.
+
+Examples of permitted use:
+  - Building integrations for your own organisation's systems
+  - Shipping integra as part of a larger product where integra is a component,
+    not the product itself
+  - Consulting work where you build and deploy integrations for clients
+
+Examples of prohibited use:
+  - Offering "IntegraPro" or a similarly branded integration platform built
+    on this codebase
+  - Selling hosted integra instances as a service
+  - Repackaging and redistributing integra under a different name
+
+-----------------------------------------------------------------------------
+
+Change Date and Change License
+
+On 2030/12/31, or the fourth anniversary of the first publicly available
+distribution of a specific version of the Licensed Work under BSL 1.1,
+whichever comes first, the Licensed Work will automatically become available
+under the Apache License, Version 2.0.
+
+After that date, you may use that version of the Licensed Work under either
+BSL 1.1 or Apache 2.0, at your option.
+
+-----------------------------------------------------------------------------
+
+For licensing enquiries, contact the Licensor via the GitHub repository:
+https://github.com/ciacob/integra

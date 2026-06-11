@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * @int3gra/cli - index.js
  * Minimal command dispatcher. No framework needed.

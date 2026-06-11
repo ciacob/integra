@@ -825,37 +825,30 @@ The accumulation of results across pages — `[...existing, ...newItems]` — is
 
 ---
 
-## License
-
-Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
-
----
-
 ## Resolver naming convention
 
-All resolver modules are merged into a single flat namespace at runtime. To avoid collisions between modules, **prefix exported function names with a short module identifier**:
+When an integration has multiple resolver modules, prefix each module's
+exported functions with a short namespace to avoid flat-namespace collisions:
 
 ```javascript
-// resolvers/servicenow.js  — prefix: sn
+// resolvers/servicenow.js
 export function snStore(ctx, key) { ... }
 export function snHasResults(ctx) { ... }
 
-// resolvers/jira.js  — prefix: jira
+// resolvers/jira.js
 export function jiraStore(ctx, key) { ... }
 export function jiraBasicAuth(ctx, user, token) { ... }
-
-// resolvers/sync.js  — flow control, no prefix needed (names are process-specific)
-export function hasNextIncident(ctx) { ... }
-export function handleFetchError(ctx) { ... }
 ```
 
-Functions with no arguments can be called without parentheses in JSON:
-```json
-"filter": "{{fn:snHasResults}}",
-"while": "{{fn:hasNextIncident}}"
-```
+---
 
-Functions with arguments use parentheses. Bare dot-paths resolve against ctx:
-```json
-"if": "{{fn:isHighPriority(shared.current_sn_incident.priority)}}"
-```
+## License
+
+Licensed under the [Business Source License 1.1](./LICENSE).
+
+Free to use commercially and as part of services or products you build —
+**integra itself may not be the product being sold or offered.** See
+[NOTICE](./NOTICE) for a plain-English summary.
+
+**Change Date:** 2030/12/31 — on that date this version converts to
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).

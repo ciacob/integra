@@ -45,4 +45,4 @@ import { resolveAuthBlock }              from "@int3gra/engine/executor";
 
 ## License
 
-Apache-2.0 with Commons Clause. Free to use commercially. Not free to resell or rebrand.
+BSL 1.1 — free to use commercially as a component of your own products. May not be resold or repackaged as a standalone product. Converts to Apache 2.0 on 2030/12/31. See LICENSE and NOTICE for details.

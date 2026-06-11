@@ -9,7 +9,7 @@
   "dependencies": {
     "@int3gra/engine": "*"
   },
-  "license": "Apache-2.0",
+  "license": "BSL-1.1",
   "publishConfig": {
     "access": "public"
   },

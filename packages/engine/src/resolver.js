@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * @int3gra/engine - resolver.js
  * Resolves {{placeholders}} and {{fn:calls}} in any value.
