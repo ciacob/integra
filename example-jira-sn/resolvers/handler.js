@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * resolvers/handler.js
  * Flow control and response building for the handle-jira-issue process.

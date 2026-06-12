@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * test/sync-process.test.js
  * Tests for the ServiceNow → Jira sync integration.

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * resolvers/servicenow.js
  * Resolver functions for ServiceNow connection components.

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * @int3gra/cli - commands/test.js
  *
