@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Developer tooling for int3gra integrations",
   "bin": {
@@ -9,7 +9,7 @@
   "dependencies": {
     "@int3gra/engine": "*"
   },
-  "license": "BSL-1.1",
+  "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
   },
