@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/manager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "Integration supervisor \u2014 spawns, monitors, and manages int3gra instances via PM2",
   "bin": {
@@ -10,7 +10,7 @@
     "@int3gra/engine": "*",
     "pm2": "^5.3.0"
   },
-  "license": "Apache-2.0",
+  "license": "BSL-1.1",
   "publishConfig": {
     "access": "public"
   },

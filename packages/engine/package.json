@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/engine",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "The int3gra runtime engine",
   "main": "src/index.js",
@@ -27,7 +27,7 @@
     "fastify": "^5.0.0",
     "file-type": "^21.0.0"
   },
-  "license": "Apache-2.0",
+  "license": "BSL-1.1",
   "publishConfig": {
     "access": "public"
   },
