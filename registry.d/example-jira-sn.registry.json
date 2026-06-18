@@ -1,0 +1,6 @@
+{
+  "id":          "example-jira-sn",
+  "path":        "./example-jira-sn",
+  "enabled":     true,
+  "description": "Jira to ServiceNow incident creator (inbound listener)"
+}

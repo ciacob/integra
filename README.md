@@ -309,17 +309,54 @@ A 4xx or 5xx response exits with code 1. A network error (DNS, timeout, refused)
 
 ## Manager workflow
 
-From the directory containing `registry.json`:
+The manager stores integration metadata as a directory of fragments —
+`registry.d/<id>.registry.json`, one file per integration — instead of a
+single shared `registry.json`. This exists so that multiple engineers
+working on different integrations on the same host never race on the same
+file, and so that one person's typo can't corrupt everyone else's config.
+
+**`registry.d/` is system-managed. Never hand-edit the files inside it.**
+Treat it like a `dist/` folder — inspectable, but not where you make changes.
+All mutation goes through five subcommands:
+
+```bash
+integra-manager checkout <id>             # lock <id>, get an editable staged copy
+# ...edit the staged file (in ~/integra/ by default)...
+integra-manager publish <id>              # validate, publish live, release the lock
+
+integra-manager uncheckout <id>           # give up without publishing
+integra-manager delete <id> [--purge]     # remove an entry (--purge also deletes its folder)
+integra-manager duplicate <id> <new-id>   # clone an entry + its integration folder
+```
+
+There is no separate "create" command — registering a brand-new integration
+is the same `checkout → edit → publish` path, just on an `id` that doesn't
+exist yet. `checkout` seeds a minimal template in that case instead of
+copying live content.
+
+**Locks are exclusive and time-boxed** (30 minutes by default). Only the
+user who acquired a lock may publish or uncheckout against it — unless it
+has expired, in which case anyone's next checkout succeeds as if the lock
+had never existed. This means a forgotten checkout can never permanently
+block an integration, while a live edit session is genuinely protected from
+someone else publishing over it mid-edit.
+
+Once an integration is registered, the runtime commands work exactly as
+before:
 
 ```bash
 integra-manager start              # spawn all enabled integrations via PM2
 integra-manager status             # show uptime, restarts, memory
-integra-manager logs my-sn-jira   # tail logs for a specific integration
-integra-manager stop my-sn-jira   # stop an integration
+integra-manager logs my-sn-jira    # tail logs for a specific integration
+integra-manager stop my-sn-jira    # stop an integration
 integra-manager restart my-sn-jira
-integra-manager enable my-sn-jira
+integra-manager enable my-sn-jira  # flips one field — still respects locks
 integra-manager disable my-sn-jira
 ```
+
+`enable`/`disable` internally perform their own checkout → edit → publish
+cycle, so they're correctly rejected if someone else currently holds a live
+lock on that integration — they are not a backdoor around the lock layer.
 
 ---
 

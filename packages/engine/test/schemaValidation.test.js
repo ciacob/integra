@@ -125,11 +125,12 @@ describe("validateManifest", () => {
   });
 });
 
-// ── registry schema validation (via validateRegistryData internal logic) ──────
-// These test the schema shape indirectly by validating real registry structures.
+// ── registry entry schema validation (registry.d/<id>.registry.json) ──────────
+// registry.json (a single array-wrapped file) no longer exists — replaced by
+// registry.d/, one file per integration, validated against this per-entry
+// schema. These tests exercise the schema shape directly.
 
-describe("registry.json schema shape", () => {
-  // Import Ajv and the schema directly so we can test without filesystem
+describe("registry-entry schema shape", () => {
   let validate;
 
   beforeAll(async () => {
@@ -139,62 +140,53 @@ describe("registry.json schema shape", () => {
     const Ajv           = (await import("ajv")).default;
 
     const testDir    = resolve(fileURLToPath(import.meta.url), "..");
-    const schemaPath = resolve(testDir, "../../manager/schemas/registry.schema.json");
+    const schemaPath = resolve(testDir, "../../manager/schemas/registry-entry.schema.json");
     const schema = JSON.parse(await readFile(schemaPath, "utf-8"));
     const ajv    = new Ajv({ allErrors: true });
     validate     = ajv.compile(schema);
   });
 
-  test("accepts a valid registry", () => {
+  test("accepts a minimal valid entry", () => {
+    expect(validate({ id: "my-integration", path: "./my-integration" })).toBe(true);
+  });
+
+  test("accepts a fully-populated entry", () => {
     expect(validate({
-      integrations: [
-        { id: "my-integration", path: "./my-integration", enabled: true },
-      ],
+      id:          "my-integration",
+      path:        "./my-integration",
+      enabled:     true,
+      description: "Does a thing",
+      schedule:    "*/5 * * * *",
+      max_ttl:     240,
+      env_file:    ".env.dev",
     })).toBe(true);
   });
 
-  test("accepts a scheduled integration entry", () => {
-    expect(validate({
-      integrations: [{
-        id:       "sched",
-        path:     "./sched",
-        schedule: "*/5 * * * *",
-        max_ttl:  240,
-      }],
-    })).toBe(true);
+  test("rejects an entry missing id", () => {
+    expect(validate({ path: "./x" })).toBe(false);
   });
 
-  test("accepts an empty integrations array", () => {
-    expect(validate({ integrations: [] })).toBe(true);
+  test("rejects an entry missing path", () => {
+    expect(validate({ id: "x" })).toBe(false);
   });
 
-  test("rejects missing integrations array", () => {
-    expect(validate({})).toBe(false);
+  test("rejects an entry with empty id", () => {
+    expect(validate({ id: "", path: "./x" })).toBe(false);
   });
 
-  test("rejects integration entry missing id", () => {
-    expect(validate({ integrations: [{ path: "./x" }] })).toBe(false);
-  });
-
-  test("rejects integration entry missing path", () => {
-    expect(validate({ integrations: [{ id: "x" }] })).toBe(false);
-  });
-
-  test("rejects integration entry with empty id", () => {
-    expect(validate({ integrations: [{ id: "", path: "./x" }] })).toBe(false);
+  test("rejects an entry with empty path", () => {
+    expect(validate({ id: "x", path: "" })).toBe(false);
   });
 
   test("rejects max_ttl less than 1", () => {
-    expect(validate({ integrations: [{ id: "x", path: "./x", max_ttl: 0 }] })).toBe(false);
+    expect(validate({ id: "x", path: "./x", max_ttl: 0 })).toBe(false);
   });
 
-  test("rejects unknown fields on integration entry", () => {
-    expect(validate({
-      integrations: [{ id: "x", path: "./x", unknown: "field" }],
-    })).toBe(false);
+  test("rejects unknown fields", () => {
+    expect(validate({ id: "x", path: "./x", unknown: "field" })).toBe(false);
   });
 
-  test("rejects unknown root fields", () => {
-    expect(validate({ integrations: [], extra: true })).toBe(false);
+  test("rejects a wrapped { integrations: [...] } document — that shape no longer exists", () => {
+    expect(validate({ integrations: [{ id: "x", path: "./x" }] })).toBe(false);
   });
 });

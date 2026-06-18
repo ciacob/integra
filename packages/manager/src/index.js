@@ -10,13 +10,18 @@ import { startAll, stopOne, restartOne, statusAll,
 import { readFile }                                from "fs/promises";
 import { resolve }                                 from "path";
 import { createTailStream }                        from "./commands/logs.js";
+import { checkout }                                from "./commands/checkout.js";
+import { publish }                                 from "./commands/publish.js";
+import { uncheckout }                               from "./commands/uncheckout.js";
+import { deleteEntry }                              from "./commands/delete.js";
+import { duplicate }                                from "./commands/duplicate.js";
 
 const [,, command, ...args] = process.argv;
 
 const HELP = `
 integra-manager — integration supervisor
 
-Commands:
+Runtime commands:
   integra-manager start [--env file] Start all enabled integrations.
                                      --env: env file to use (default: .env per integration).
                                      Behaviour depends on lifecycle (see below).
@@ -24,22 +29,33 @@ Commands:
   integra-manager restart <id>       Restart an integration (targets the right process per lifecycle)
   integra-manager status             Show all integrations — lifecycle, status, uptime, tc column
   integra-manager logs <id>          Tail integration logs
-  integra-manager enable <id>        Enable an integration in the registry
-  integra-manager disable <id>       Stop then disable an integration in the registry
+  integra-manager enable <id>        Enable an integration (acquires/releases its own lock)
+  integra-manager disable <id>       Stop then disable an integration (acquires/releases its own lock)
 
-Lifecycles (declared in integra.json, or derived from registry.json):
+Registry commands (registry.d/ — never hand-edit these files):
+  integra-manager checkout <id>      Lock <id> and seed a staging file to edit.
+                                     New id → seeded from a minimal template (this is how you register).
+                                     Existing id → seeded from its current live content.
+  integra-manager publish <id> [file] Validate and publish your staged edits live. Releases the lock.
+                                     [file] defaults to the staging copy from checkout.
+  integra-manager uncheckout <id>    Release your lock without publishing.
+  integra-manager delete <id> [--purge]  Remove a published entry. --purge also deletes its folder.
+  integra-manager duplicate <id> <new-id>  Lock <new-id>, seed it from <id>, copy the integration folder.
+
+Lifecycles (declared in integra.json, or derived from the registry entry):
   (absent)    Run-once. Starts, executes entry process, exits.
-  scheduled   TrafficController fires entry on cron schedule (schedule field in registry.json).
+  scheduled   TrafficController fires entry on cron schedule (schedule field in the registry entry).
   listener    Long-lived Fastify HTTP server. Fires entry on each inbound request. autorestart: true.
 
-Registry fields:
-  id          Unique integration identifier
+Registry entry fields:
+  id          Unique integration identifier — must match the filename and the integration's own integra.json
   path        Relative path to the integration directory
   enabled     true | false
   schedule    Cron expression — makes the integration "scheduled"  e.g. "*/5 * * * *"
   max_ttl     Seconds before TC forcibly kills a runaway scheduled integration
+  env_file    Relative path to a non-default env file
 
-Run from the directory containing registry.json.
+Run from the directory containing registry.d/.
 `;
 
 async function main() {
@@ -99,6 +115,49 @@ async function main() {
       await disableIntegration(args[0], cwd);
       console.log(`✓ Disabled: ${args[0]}`);
       break;
+
+    case "checkout": {
+      if (!args[0]) throw new Error("Usage: integra-manager checkout <id>");
+      const result = await checkout(args[0], { cwd });
+      console.log(`✓ Checked out: ${result.id}${result.isNew ? " (new)" : ""}`);
+      console.log(`  Staging file: ${result.stagingPath}`);
+      console.log(`  Lock expires: ${new Date(result.lockExpiresAt).toLocaleString()}`);
+      break;
+    }
+
+    case "publish": {
+      if (!args[0]) throw new Error("Usage: integra-manager publish <id> [file]");
+      const result = await publish(args[0], args[1], { cwd });
+      console.log(`✓ Published: ${result.id}`);
+      console.log(`  From: ${result.path}`);
+      break;
+    }
+
+    case "uncheckout": {
+      if (!args[0]) throw new Error("Usage: integra-manager uncheckout <id>");
+      await uncheckout(args[0], { cwd });
+      console.log(`✓ Released checkout: ${args[0]}`);
+      break;
+    }
+
+    case "delete": {
+      if (!args[0]) throw new Error("Usage: integra-manager delete <id> [--purge]");
+      const purge = args.includes("--purge");
+      const result = await deleteEntry(args[0], { cwd, purge });
+      console.log(`✓ Deleted: ${result.id}`);
+      if (result.purgedPath) console.log(`  Purged: ${result.purgedPath}`);
+      break;
+    }
+
+    case "duplicate": {
+      if (!args[0] || !args[1]) throw new Error("Usage: integra-manager duplicate <id> <new-id>");
+      const result = await duplicate(args[0], args[1], { cwd });
+      console.log(`✓ Duplicated "${args[0]}" → "${result.id}"`);
+      console.log(`  Staging file: ${result.stagingPath}`);
+      console.log(`  Integration dir: ${result.integrationDir}`);
+      console.log(`  Remember to edit and 'publish ${result.id}' when ready.`);
+      break;
+    }
 
     default:
       console.error(`Unknown command: ${command}`);

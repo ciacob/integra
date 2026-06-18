@@ -1,0 +1,8 @@
+{
+  "id": "example-sn-jira",
+  "path": "./example-sn-jira",
+  "enabled": true,
+  "description": "ServiceNow to Jira incident sync (outbound, scheduled) — edited via checkout/publish",
+  "schedule": "*/5 * * * *",
+  "max_ttl": 240
+}
