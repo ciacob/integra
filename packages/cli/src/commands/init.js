@@ -60,30 +60,30 @@ export async function init([name]) {
     ].join("\n")
   );
 
-  // ── Register in registry.d/ if one exists ──────────────────────────────
-  // Silently skipped when running in a standalone dev environment without
-  // a manager setup. The developer can always register later via the
-  // checkout/publish flow once they have a registry.d/ in place.
+  // ── Register in registry.d/ ────────────────────────────────────────────────
+  // Always ensure registry.d/ exists — init is how integrations begin, and
+  // the manager needs this directory. Creating it here costs nothing and
+  // saves the developer a separate setup step.
 
   const registryDir = resolve(cwd, "registry.d");
   const entryPath   = resolve(registryDir, `${name}.registry.json`);
   let   registered  = false;
 
-  if (existsSync(registryDir)) {
-    if (existsSync(entryPath)) {
-      console.warn(
-        `  ⚠  registry.d/${name}.registry.json already exists — skipping registration.\n` +
-        `     If you meant to replace it, use 'integra-manager checkout ${name}' instead.`
-      );
-    } else {
-      const entry = {
-        id:      name,
-        path:    `./${name}`,
-        enabled: true,
-      };
-      await writeFile(entryPath, JSON.stringify(entry, null, 2) + "\n");
-      registered = true;
-    }
+  await mkdir(registryDir, { recursive: true });
+
+  if (existsSync(entryPath)) {
+    console.warn(
+      `  ⚠  registry.d/${name}.registry.json already exists — skipping registration.\n` +
+      `     If you meant to replace it, use 'integra-manager checkout ${name}' instead.`
+    );
+  } else {
+    const entry = {
+      id:      name,
+      path:    `./${name}`,
+      enabled: true,
+    };
+    await writeFile(entryPath, JSON.stringify(entry, null, 2) + "\n");
+    registered = true;
   }
 
   // ── Report ───────────────────────────────────────────────────────────────

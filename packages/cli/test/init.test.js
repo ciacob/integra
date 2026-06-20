@@ -65,13 +65,12 @@ describe("integra init", () => {
 
   // ── registry.d/ registration ──────────────────────────────────────────────
 
-  test("does NOT create a registry.d/ entry when no registry.d/ exists in cwd", async () => {
+  test("creates registry.d/ when it doesn't exist yet", async () => {
     await init(["my-integration"]);
-    await expect(stat(join(cwd, "registry.d"))).rejects.toThrow();
+    await expect(stat(join(cwd, "registry.d"))).resolves.toBeDefined();
   });
 
-  test("creates a registry.d/ entry when registry.d/ exists in cwd", async () => {
-    await mkdir(join(cwd, "registry.d"));
+  test("creates a registry.d/ entry on init", async () => {
     await init(["my-integration"]);
 
     const entryPath = join(cwd, "registry.d", "my-integration.registry.json");
@@ -79,7 +78,6 @@ describe("integra init", () => {
   });
 
   test("registered entry has correct id, path, and enabled:true", async () => {
-    await mkdir(join(cwd, "registry.d"));
     await init(["my-integration"]);
 
     const raw   = await readFile(join(cwd, "registry.d", "my-integration.registry.json"), "utf-8");
@@ -90,8 +88,8 @@ describe("integra init", () => {
   });
 
   test("skips registration gracefully when a registry.d/ entry already exists for that id", async () => {
-    await mkdir(join(cwd, "registry.d"));
-    // Pre-existing entry with custom description
+    // Pre-seed an existing entry
+    await mkdir(join(cwd, "registry.d"), { recursive: true });
     const existing   = { id: "my-pre-existing", path: "./my-pre-existing", description: "pre-existing" };
     const entryPath  = join(cwd, "registry.d", "my-pre-existing.registry.json");
     const { writeFile } = await import("fs/promises");
@@ -107,7 +105,6 @@ describe("integra init", () => {
   });
 
   test("integration directory name with hyphens becomes the entry id unchanged", async () => {
-    await mkdir(join(cwd, "registry.d"));
     await init(["sn-to-jira-v2"]);
 
     const raw   = await readFile(join(cwd, "registry.d", "sn-to-jira-v2.registry.json"), "utf-8");
