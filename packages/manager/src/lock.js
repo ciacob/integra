@@ -21,6 +21,25 @@ import { resolve, join } from "path";
 
 export const DEFAULT_LOCK_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+/**
+ * Returns the effective lock TTL in milliseconds.
+ * Reads INTEGRA_LOCK_TTL_SECONDS from the environment if set (loaded from
+ * whichever .env file was passed to the manager command — the same files
+ * that hold credentials). Falls back to DEFAULT_LOCK_TTL_MS.
+ *
+ * Kept as a function rather than a constant so it always reflects the
+ * env as it stands at call time — the .env may have been loaded after
+ * this module was first imported.
+ */
+export function effectiveLockTtlMs() {
+  const raw = process.env.INTEGRA_LOCK_TTL_SECONDS;
+  if (raw) {
+    const seconds = parseInt(raw, 10);
+    if (!Number.isNaN(seconds) && seconds > 0) return seconds * 1000;
+  }
+  return DEFAULT_LOCK_TTL_MS;
+}
+
 // ── Pure decision functions ───────────────────────────────────────────────────
 
 /**

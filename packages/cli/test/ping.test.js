@@ -62,9 +62,12 @@ describe("integra ping", () => {
   let originalExit;
   let exitCode;
 
+  let originalCwd;
+
   beforeAll(async () => {
     const mod = await import("../src/commands/ping.js");
     ping = mod.ping;
+    originalCwd = process.cwd();
 
     // Capture process.exit calls
     originalExit = process.exit;
@@ -73,6 +76,7 @@ describe("integra ping", () => {
 
   afterAll(() => {
     process.exit = originalExit;
+    process.chdir(originalCwd);
   });
 
   beforeEach(() => {
@@ -83,6 +87,8 @@ describe("integra ping", () => {
   afterEach(async () => {
     globalThis.fetch = undefined;
     if (dir) {
+      // Restore cwd before deleting dir to avoid leaving process in a deleted dir
+      process.chdir(originalCwd);
       await rm(dir, { recursive: true, force: true });
       dir = null;
     }

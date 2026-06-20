@@ -71,6 +71,14 @@ describe("registry.js facade", () => {
 
   // ── setEnabled — respects existing human locks ──────────────────────────
 
+  test("setEnabled gives a different message when the blocking holder is the current user", async () => {
+    await publishEntry(cwd, "mine", { id: "mine", path: "./mine" });
+    // alice checks out, then tries to setEnabled as herself
+    await asUser("alice", () => checkout("mine", { cwd, stagingDir, now: 1000 }));
+    await expect(asUser("alice", () => setEnabled("mine", false, cwd, { now: 1200 })))
+      .rejects.toThrow(/checked out by you/i);
+  });
+
   test("setEnabled is rejected while another user holds a live checkout on the same id", async () => {
     await publishEntry(cwd, "contested", { id: "contested", path: "./contested" });
     await asUser("alice", () => checkout("contested", { cwd, stagingDir, now: 1000 }));

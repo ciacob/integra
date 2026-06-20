@@ -5,31 +5,37 @@
  * `integra-manager checkout <id>`
  *
  * Acquires an exclusive, time-boxed lock on <id> and seeds a staging file
- * the user can edit. If <id> already exists live, the staging file is
- * seeded from its current content. If it doesn't exist yet, this is how a
- * brand new integration gets registered — seeded from a minimal template.
+ * from the integration's current live content, ready to edit.
+ *
+ * Requires the id to already exist in registry.d/. If it doesn't, the user
+ * is directed to `integra init <id>` — that is the one and only creation
+ * path. Accepting a non-existing id here would make typos silently create
+ * ghost entries, which is worse than a clear error.
+ *
+ * The lock TTL is read from INTEGRA_LOCK_TTL_SECONDS in the environment
+ * (default: 30 minutes). Set this in your .env file to adjust team-wide.
  */
 
-import { acquireLock, DEFAULT_LOCK_TTL_MS } from "../lock.js";
+import { acquireLock, effectiveLockTtlMs } from "../lock.js";
 import { readEntry }                        from "../registryStorage.js";
-import { seedStagingFile, defaultStagingDir,
-         stagingFilePath }                  from "../staging.js";
+import { seedStagingFile, defaultStagingDir } from "../staging.js";
 import { currentUser }                      from "../identity.js";
 
-function minimalTemplate(id) {
-  return {
-    id,
-    path:        `./${id}`,
-    enabled:     true,
-    description: "",
-  };
-}
-
-export async function checkout(id, { cwd = process.cwd(), stagingDir, ttlMs = DEFAULT_LOCK_TTL_MS, now } = {}) {
+export async function checkout(id, { cwd = process.cwd(), stagingDir, ttlMs, now } = {}) {
   if (!id) throw new Error("Usage: integra-manager checkout <id>");
 
-  const holder = currentUser();
-  const result = await acquireLock(cwd, id, holder, ttlMs, now);
+  // Error clearly on non-existing id — creation must go through `integra init`.
+  const existing = await readEntry(cwd, id);
+  if (!existing) {
+    throw new Error(
+      `"${id}" is not registered in registry.d/.\n` +
+      `To register a new integration, run 'integra init ${id}' first.`
+    );
+  }
+
+  const holder     = currentUser();
+  const resolvedTtl = ttlMs ?? effectiveLockTtlMs();
+  const result     = await acquireLock(cwd, id, holder, resolvedTtl, now);
 
   if (!result.ok) {
     const minutesLeft = Math.ceil((result.expiresAt - (now ?? Date.now())) / 60000);
@@ -40,17 +46,12 @@ export async function checkout(id, { cwd = process.cwd(), stagingDir, ttlMs = DE
     );
   }
 
-  const existing = await readEntry(cwd, id);
-  const seedContent = existing ?? minimalTemplate(id);
-  const isNew        = existing === null;
-
   const dir  = stagingDir ?? defaultStagingDir();
-  const path = await seedStagingFile(dir, id, seedContent, now);
+  const path = await seedStagingFile(dir, id, existing, now);
 
   return {
     id,
     holder,
-    isNew,
     stagingPath: path,
     lockExpiresAt: result.record.expiresAt,
   };

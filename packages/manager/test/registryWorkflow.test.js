@@ -37,84 +37,105 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
     }
   }
 
-  // ── Happy path: checkout → edit → publish (new integration) ───────────────
+  // ── checkout — requires existing entry ────────────────────────────────────
 
-  test("checkout on a brand-new id seeds a minimal template", async () => {
-    const result = await asUser("alice", () => checkout("new-int", alice()));
-    expect(result.isNew).toBe(true);
-
-    const staged = JSON.parse(await readFile(result.stagingPath, "utf-8"));
-    expect(staged.id).toBe("new-int");
-    expect(staged.path).toBe("./new-int");
+  test("checkout errors clearly on a non-existing id, directing user to init", async () => {
+    await expect(asUser("alice", () => checkout("never-existed", alice())))
+      .rejects.toThrow(/integra init never-existed/);
   });
 
-  test("full new-integration lifecycle: checkout, edit, publish", async () => {
-    const co = await asUser("alice", () => checkout("new-int", alice()));
-
-    // Simulate the user editing the staged file
-    const staged = JSON.parse(await readFile(co.stagingPath, "utf-8"));
-    staged.description = "My new integration";
-    staged.enabled = true;
-    await writeFile(co.stagingPath, JSON.stringify(staged, null, 2));
-
-    await asUser("alice", () => publish("new-int", undefined, alice()));
-
-    const live = await readEntry(cwd, "new-int");
-    expect(live.description).toBe("My new integration");
-  });
-
-  test("publish releases the lock on success", async () => {
-    await asUser("alice", () => checkout("new-int", alice()));
-    await asUser("alice", () => publish("new-int", undefined, alice({ now: 1500 })));
-    expect(await readLock(cwd, "new-int")).toBeNull();
-  });
-
-  test("checkout on an existing id seeds from its live content", async () => {
+  test("checkout on an existing id seeds a staging file from live content", async () => {
     await publishEntry(cwd, "existing", { id: "existing", path: "./existing", description: "original" });
 
     const result = await asUser("alice", () => checkout("existing", alice()));
-    expect(result.isNew).toBe(false);
 
     const staged = JSON.parse(await readFile(result.stagingPath, "utf-8"));
     expect(staged.description).toBe("original");
+    expect(staged.id).toBe("existing");
+  });
+
+  // ── Happy path: checkout → edit → publish ─────────────────────────────────
+
+  test("full lifecycle: checkout existing, edit, publish", async () => {
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./my-int", description: "before" });
+
+    const co = await asUser("alice", () => checkout("my-int", alice()));
+
+    const staged = JSON.parse(await readFile(co.stagingPath, "utf-8"));
+    staged.description = "after";
+    await writeFile(co.stagingPath, JSON.stringify(staged, null, 2));
+
+    await asUser("alice", () => publish("my-int", undefined, alice({ now: 1500 })));
+
+    const live = await readEntry(cwd, "my-int");
+    expect(live.description).toBe("after");
+  });
+
+  test("publish releases the lock on success", async () => {
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./my-int" });
+    await asUser("alice", () => checkout("my-int", alice()));
+    await asUser("alice", () => publish("my-int", undefined, alice({ now: 1500 })));
+    expect(await readLock(cwd, "my-int")).toBeNull();
   });
 
   // ── Lock contention between two users ──────────────────────────────────────
 
   test("bob cannot checkout an id alice has already checked out", async () => {
+    await publishEntry(cwd, "contested", { id: "contested", path: "./contested" });
     await asUser("alice", () => checkout("contested", alice()));
 
     await expect(asUser("bob", () => checkout("contested", bob({ now: 1200 }))))
       .rejects.toThrow(/already checked out by "alice"/);
   });
 
-  test("bob cannot publish against alice's lock even with a valid staged file", async () => {
+  test("bob cannot publish against alice's lock", async () => {
+    await publishEntry(cwd, "contested", { id: "contested", path: "./contested" });
     await asUser("alice", () => checkout("contested", alice()));
 
-    // Bob somehow has a file at the expected staging path (e.g. shared staging dir in this test)
-    // — but he never acquired the lock, so publish must reject him regardless of file content.
     await expect(asUser("bob", () => publish("contested", undefined, bob({ now: 1200 }))))
       .rejects.toThrow(/checked out by "alice"/);
   });
 
   test("bob can checkout once alice's lock has expired", async () => {
+    await publishEntry(cwd, "contested", { id: "contested", path: "./contested" });
     await asUser("alice", () => checkout("contested", alice({ ttlMs: 500 }))); // expires at 1500
 
     const result = await asUser("bob", () => checkout("contested", bob({ now: 5000 })));
     expect(result.holder).toBe("bob");
   });
 
+  // ── INTEGRA_LOCK_TTL_SECONDS env override ─────────────────────────────────
+
+  test("INTEGRA_LOCK_TTL_SECONDS is respected as the lock TTL", async () => {
+    const prior = process.env.INTEGRA_LOCK_TTL_SECONDS;
+    process.env.INTEGRA_LOCK_TTL_SECONDS = "1"; // 1 second = 1000ms
+
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./my-int" });
+    const now = Date.now();
+    await asUser("alice", () => checkout("my-int", { cwd, stagingDir, now }));
+    const lock = await readLock(cwd, "my-int");
+    expect(lock.expiresAt).toBe(now + 1000); // TTL honoured
+
+    if (prior === undefined) delete process.env.INTEGRA_LOCK_TTL_SECONDS;
+    else process.env.INTEGRA_LOCK_TTL_SECONDS = prior;
+    await asUser("alice", () => uncheckout("my-int", { cwd, now: now + 500 }));
+  });
+
   // ── uncheckout ────────────────────────────────────────────────────────────
 
   test("uncheckout releases the lock without publishing", async () => {
+    await publishEntry(cwd, "temp-edit", { id: "temp-edit", path: "./temp-edit", description: "original" });
     await asUser("alice", () => checkout("temp-edit", alice()));
     await asUser("alice", () => uncheckout("temp-edit", alice({ now: 1200 })));
 
     expect(await readLock(cwd, "temp-edit")).toBeNull();
-    expect(await entryExists(cwd, "temp-edit")).toBe(false); // never published
+    // entry still exists unchanged
+    const live = await readEntry(cwd, "temp-edit");
+    expect(live.description).toBe("original");
   });
 
   test("bob cannot uncheckout alice's lock", async () => {
+    await publishEntry(cwd, "temp-edit", { id: "temp-edit", path: "./temp-edit" });
     await asUser("alice", () => checkout("temp-edit", alice()));
     await expect(asUser("bob", () => uncheckout("temp-edit", bob({ now: 1200 }))))
       .rejects.toThrow(/checked out by "alice"/);
@@ -125,12 +146,14 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
       .rejects.toThrow(/no active checkout/i);
   });
 
-  // ── publish validation ───────────────────────────────────────────────────
+  // ── publish validation ────────────────────────────────────────────────────
 
   test("publish rejects when staged content id doesn't match the publish target", async () => {
+    await publishEntry(cwd, "right-id", { id: "right-id", path: "./right-id" });
     const co = await asUser("alice", () => checkout("right-id", alice()));
+
     const staged = JSON.parse(await readFile(co.stagingPath, "utf-8"));
-    staged.id = "wrong-id"; // user typo'd the id field
+    staged.id = "wrong-id";
     await writeFile(co.stagingPath, JSON.stringify(staged));
 
     await expect(asUser("alice", () => publish("right-id", undefined, alice({ now: 1200 }))))
@@ -138,22 +161,27 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
   });
 
   test("publish rejects invalid schema content and leaves registry.d/ untouched", async () => {
+    await publishEntry(cwd, "bad-content", { id: "bad-content", path: "./bad-content" });
     const co = await asUser("alice", () => checkout("bad-content", alice()));
+
     await writeFile(co.stagingPath, JSON.stringify({ id: "bad-content" /* missing path */ }));
 
     await expect(asUser("alice", () => publish("bad-content", undefined, alice({ now: 1200 }))))
       .rejects.toThrow();
-    expect(await entryExists(cwd, "bad-content")).toBe(false);
+    // Entry still has the original valid content
+    expect(await entryExists(cwd, "bad-content")).toBe(true);
   });
 
   test("publish accepts an explicit file path argument instead of the staging default", async () => {
+    await publishEntry(cwd, "custom-path", { id: "custom-path", path: "./custom-path" });
     await asUser("alice", () => checkout("custom-path", alice()));
 
     const customFile = join(stagingDir, "custom-name.json");
-    await writeFile(customFile, JSON.stringify({ id: "custom-path", path: "./custom-path" }));
+    await writeFile(customFile, JSON.stringify({ id: "custom-path", path: "./custom-path", description: "via custom file" }));
 
     await asUser("alice", () => publish("custom-path", customFile, alice({ now: 1200 })));
-    expect(await entryExists(cwd, "custom-path")).toBe(true);
+    const live = await readEntry(cwd, "custom-path");
+    expect(live.description).toBe("via custom file");
   });
 
   // ── delete ────────────────────────────────────────────────────────────────
@@ -259,21 +287,28 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
 
   // ── Full multi-user scenario, end to end ───────────────────────────────────
 
-  test("end-to-end: alice registers a new integration while bob is blocked from the same id", async () => {
+  test("end-to-end: alice edits an integration while bob is blocked, then bob updates after release", async () => {
+    // Both start from an existing published entry (as init would have created)
+    await publishEntry(cwd, "shared-target", { id: "shared-target", path: "./shared-target", description: "v1" });
+
     const co = await asUser("alice", () => checkout("shared-target", alice()));
 
+    // Bob is blocked during alice's edit
     await expect(asUser("bob", () => checkout("shared-target", bob({ now: 1100 }))))
       .rejects.toThrow();
 
+    // Alice finishes
     const staged = JSON.parse(await readFile(co.stagingPath, "utf-8"));
-    staged.description = "Alice's integration";
+    staged.description = "v2 by alice";
     await writeFile(co.stagingPath, JSON.stringify(staged));
     await asUser("alice", () => publish("shared-target", undefined, alice({ now: 1200 })));
 
-    // Now that alice's lock is released, bob can check out the SAME id to modify it
+    // Bob can now check out and sees alice's changes
     const bobCo = await asUser("bob", () => checkout("shared-target", bob({ now: 1300 })));
-    expect(bobCo.isNew).toBe(false);
     const bobStaged = JSON.parse(await readFile(bobCo.stagingPath, "utf-8"));
-    expect(bobStaged.description).toBe("Alice's integration");
+    expect(bobStaged.description).toBe("v2 by alice");
+
+    // Clean up bob's checkout
+    await asUser("bob", () => uncheckout("shared-target", bob({ now: 1400 })));
   });
 });

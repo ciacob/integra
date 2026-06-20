@@ -2,27 +2,12 @@
 /**
  * @int3gra/manager - registry.js
  *
- * Public registry API. Same surface as before the registry.d/ migration —
- * loadRegistry() still returns a flat array, setEnabled() still flips one
- * boolean — so manager.js requires zero changes for its read paths.
- *
- * Internally, this is now a thin facade over registryStorage.js (the
- * registry.d/ fragment store) and lock.js (the access-control layer).
- *
- * setEnabled() is the one place that used to do a direct read-modify-write
- * against registry.json. It still needs to mutate a single field, but it
- * must now respect the same lock that a human checkout/publish cycle would.
- * Rather than silently bypassing the lock layer (which would reintroduce
- * exactly the write-race the whole proposal exists to close), it performs
- * its own internal checkout → edit → publish cycle, under the identity of
- * whichever user invoked the manager command. If that user (or anyone else)
- * currently holds a live lock on the same id, setEnabled fails with the same
- * "checked out by X" error a human publish would get — enable/disable are
- * not exempt from the access-control model, they just automate the dance.
+ * Public registry API — same surface as before the registry.d/ migration.
+ * Thin facade over registryStorage.js and lock.js.
  */
 
 import { loadEntries, readEntry, publishEntry } from "./registryStorage.js";
-import { acquireLock, removeLock, DEFAULT_LOCK_TTL_MS } from "./lock.js";
+import { acquireLock, removeLock, readLock, effectiveLockTtlMs } from "./lock.js";
 import { currentUser } from "./identity.js";
 
 export async function loadRegistry(cwd = process.cwd()) {
@@ -30,9 +15,33 @@ export async function loadRegistry(cwd = process.cwd()) {
 }
 
 export async function setEnabled(id, enabled, cwd = process.cwd(), { now } = {}) {
-  const actor = currentUser();
+  const actor    = currentUser();
+  const nowMs    = now ?? Date.now();
 
-  const lockResult = await acquireLock(cwd, id, actor, DEFAULT_LOCK_TTL_MS, now);
+  // Check for an existing live lock before attempting to acquire one.
+  // acquireLock() allows the same holder to re-acquire (refresh), so without
+  // this pre-check we'd silently succeed even when the user has an open
+  // checkout — overwriting changes they haven't published yet.
+  const existing = await readLock(cwd, id);
+  if (existing && (existing.expiresAt > nowMs)) {
+    if (existing.holder === actor) {
+      throw new Error(
+        `"${id}" is currently checked out by you.\n` +
+        `Run 'publish ${id}' to save your changes first, ` +
+        `or 'uncheckout ${id}' to discard them.`
+      );
+    }
+    // Another user holds a live lock.
+    throw new Error(
+      `Cannot change "${id}": checked out by "${existing.holder}". ` +
+      `Ask them to finish, or wait for their lock to expire.`
+    );
+  }
+
+  const lockResult = await acquireLock(cwd, id, actor, effectiveLockTtlMs(), nowMs);
+
+  // Guard against the narrow race where someone else acquires between our
+  // pre-check and our acquire call.
   if (!lockResult.ok) {
     throw new Error(
       `Cannot change "${id}": checked out by "${lockResult.holder}". ` +
@@ -49,7 +58,6 @@ export async function setEnabled(id, enabled, cwd = process.cwd(), { now } = {})
 
     return entry;
   } finally {
-    // Always release — whether the publish succeeded or the entry was missing.
     await removeLock(cwd, id);
   }
 }

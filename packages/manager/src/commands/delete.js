@@ -18,19 +18,19 @@
  * --purge additionally removes the integration's own directory.
  */
 
-import { acquireLock, removeLock, DEFAULT_LOCK_TTL_MS } from "../lock.js";
+import { acquireLock, removeLock, effectiveLockTtlMs } from "../lock.js";
 import { removeEntry, readEntry, registryDirPath } from "../registryStorage.js";
 import { currentUser } from "../identity.js";
 import { rm } from "fs/promises";
 import { resolve } from "path";
 
-export async function deleteEntry(id, { cwd = process.cwd(), purge = false, ttlMs = DEFAULT_LOCK_TTL_MS, now } = {}) {
+export async function deleteEntry(id, { cwd = process.cwd(), purge = false, ttlMs, now } = {}) {
   if (!id) throw new Error("Usage: integra-manager delete <id> [--purge]");
 
   const actor = currentUser();
 
   // Auto-acquire — fails cleanly if someone else holds a live lock.
-  const lockResult = await acquireLock(cwd, id, actor, ttlMs, now);
+  const lockResult = await acquireLock(cwd, id, actor, ttlMs ?? effectiveLockTtlMs(), now);
   if (!lockResult.ok) {
     throw new Error(
       `Cannot delete "${id}": checked out by "${lockResult.holder}". ` +

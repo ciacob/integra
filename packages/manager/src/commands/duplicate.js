@@ -11,7 +11,7 @@
  * are run-specific, not part of the integration's definition).
  */
 
-import { acquireLock, DEFAULT_LOCK_TTL_MS } from "../lock.js";
+import { acquireLock, effectiveLockTtlMs } from "../lock.js";
 import { readEntry, entryExists }           from "../registryStorage.js";
 import { seedStagingFile, defaultStagingDir } from "../staging.js";
 import { currentUser }                      from "../identity.js";
@@ -20,7 +20,7 @@ import { resolve }                          from "path";
 
 const EXCLUDED_TOP_LEVEL = new Set([".env", "storage", "logs"]);
 
-export async function duplicate(id, newId, { cwd = process.cwd(), stagingDir, ttlMs = DEFAULT_LOCK_TTL_MS, now } = {}) {
+export async function duplicate(id, newId, { cwd = process.cwd(), stagingDir, ttlMs, now } = {}) {
   if (!id || !newId) throw new Error("Usage: integra-manager duplicate <id> <new-id>");
   if (id === newId)  throw new Error("Source and target id must differ.");
 
@@ -32,7 +32,7 @@ export async function duplicate(id, newId, { cwd = process.cwd(), stagingDir, tt
   }
 
   const holder = currentUser();
-  const lockResult = await acquireLock(cwd, newId, holder, ttlMs, now);
+  const lockResult = await acquireLock(cwd, newId, holder, ttlMs ?? effectiveLockTtlMs(), now);
   if (!lockResult.ok) {
     throw new Error(`"${newId}" is already checked out by "${lockResult.holder}". Try a different id.`);
   }
