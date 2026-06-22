@@ -1,13 +1,13 @@
 // Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 import { mkdtemp, rm, mkdir, writeFile, readFile, stat } from "fs/promises";
 import { tmpdir } from "os";
-import { join }   from "path";
+import { join, resolve } from "path";
 
 import { checkout }    from "../src/commands/checkout.js";
 import { publish }     from "../src/commands/publish.js";
 import { uncheckout }  from "../src/commands/uncheckout.js";
 import { deleteEntry } from "../src/commands/delete.js";
-import { duplicate }   from "../src/commands/duplicate.js";
+import { duplicate, siblingTargetDir } from "../src/commands/duplicate.js";
 import { readEntry, entryExists, publishEntry } from "../src/registryStorage.js";
 import { readLock } from "../src/lock.js";
 
@@ -233,22 +233,56 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
   });
 
   // ── duplicate ─────────────────────────────────────────────────────────────
+  // .integrations/<id>/live is the only supported layout for a registered
+  // integration's working tree — there is no other valid path configuration.
+  // Every fixture below uses that shape.
+
+  describe("siblingTargetDir (pure)", () => {
+    test("returns .integrations/<newId>/live under the given root", () => {
+      expect(siblingTargetDir("/home/x", "my-clone"))
+        .toBe("/home/x/.integrations/my-clone/live");
+    });
+  });
 
   test("duplicate seeds the new id's staging file from the source, with id rewritten", async () => {
-    const srcDir = join(cwd, "source-int");
+    const srcDir = join(cwd, ".integrations", "my-int", "live");
     await mkdir(srcDir, { recursive: true });
     await writeFile(join(srcDir, "integra.json"), "{}");
-    await publishEntry(cwd, "source", { id: "source", path: "./source-int", description: "original" });
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./.integrations/my-int/live", description: "original" });
 
-    const result = await asUser("alice", () => duplicate("source", "clone", alice()));
+    const result = await asUser("alice", () => duplicate("my-int", "my-clone", alice()));
 
     const staged = JSON.parse(await readFile(result.stagingPath, "utf-8"));
-    expect(staged.id).toBe("clone");
+    expect(staged.id).toBe("my-clone");
     expect(staged.description).toBe("original");
   });
 
+  test("duplicate places the clone at .integrations/<newId>/live, a sibling of .integrations/<id>", async () => {
+    const srcDir = join(cwd, ".integrations", "my-int", "live");
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(srcDir, "integra.json"), "{}");
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./.integrations/my-int/live" });
+
+    const result = await asUser("alice", () => duplicate("my-int", "my-clone", alice()));
+
+    expect(result.integrationDir).toBe(join(cwd, ".integrations", "my-clone", "live"));
+  });
+
+  test("duplicate's staged entry path points at the actual copy destination", async () => {
+    const srcDir = join(cwd, ".integrations", "my-int", "live");
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(srcDir, "integra.json"), "{}");
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./.integrations/my-int/live" });
+
+    const result = await asUser("alice", () => duplicate("my-int", "my-clone", alice()));
+
+    const staged = JSON.parse(await readFile(result.stagingPath, "utf-8"));
+    expect(resolve(cwd, staged.path)).toBe(result.integrationDir);
+    expect(staged.path).toBe("./.integrations/my-clone/live");
+  });
+
   test("duplicate copies the integration folder excluding .env, storage, logs", async () => {
-    const srcDir = join(cwd, "source-int");
+    const srcDir = join(cwd, ".integrations", "my-int", "live");
     await mkdir(join(srcDir, "storage"), { recursive: true });
     await mkdir(join(srcDir, "logs"), { recursive: true });
     await writeFile(join(srcDir, "integra.json"), "{}");
@@ -256,9 +290,9 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
     await writeFile(join(srcDir, "storage", "store.json"), "{}");
     await writeFile(join(srcDir, "logs", "out.log"), "log line");
 
-    await publishEntry(cwd, "source", { id: "source", path: "./source-int" });
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./.integrations/my-int/live" });
 
-    const result = await asUser("alice", () => duplicate("source", "clone", alice()));
+    const result = await asUser("alice", () => duplicate("my-int", "my-clone", alice()));
 
     await expect(stat(join(result.integrationDir, "integra.json"))).resolves.toBeDefined();
     await expect(stat(join(result.integrationDir, ".env"))).rejects.toThrow();
@@ -267,10 +301,10 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
   });
 
   test("duplicate throws if the new id already exists", async () => {
-    await publishEntry(cwd, "source", { id: "source", path: "./source-int" });
-    await publishEntry(cwd, "taken",  { id: "taken",  path: "./taken-int" });
+    await publishEntry(cwd, "my-int", { id: "my-int", path: "./.integrations/my-int/live" });
+    await publishEntry(cwd, "taken",  { id: "taken",  path: "./.integrations/taken/live" });
 
-    await expect(asUser("alice", () => duplicate("source", "taken", alice())))
+    await expect(asUser("alice", () => duplicate("my-int", "taken", alice())))
       .rejects.toThrow(/already exists/i);
   });
 
@@ -280,7 +314,7 @@ describe("registry.d workflow — checkout / publish / delete / duplicate / unch
   });
 
   test("duplicate throws if source and target id are identical", async () => {
-    await publishEntry(cwd, "same", { id: "same", path: "./same-int" });
+    await publishEntry(cwd, "same", { id: "same", path: "./.integrations/same/live" });
     await expect(asUser("alice", () => duplicate("same", "same", alice())))
       .rejects.toThrow(/must differ/i);
   });
