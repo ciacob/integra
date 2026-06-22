@@ -10,16 +10,19 @@ import { validate } from "./commands/validate.js";
 import { run }      from "./commands/run.js";
 import { test }     from "./commands/test.js";
 import { ping }     from "./commands/ping.js";
+import { setup }    from "./commands/setup.js";
 
 const [,, command, ...args] = process.argv;
 
-const commands = { init, validate, run, test, ping };
+const commands = { init, validate, run, test, ping, setup };
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
 int3gra — integration engine CLI
 
 Commands:
+  integra setup                     One-off host provisioning. Run once, as root (sudo).
+                                     Creates /opt/integra, integra's fixed home.
   integra init <name>              Scaffold a new integration environment
   integra validate                 Validate components and processes (no execution)
   integra run <process-id>         Execute a process in the current directory

@@ -3,49 +3,64 @@
  * @int3gra/manager - home.js
  *
  * The canonical, fixed location of integra's own data: registry.d/ and
- * .integrations/ live directly under this path. Resolved via env-paths,
- * which picks the right convention per platform (XDG on Linux, Application
- * Support on macOS, %APPDATA% on Windows) — integra is not deliberately
- * Unix-only, even though every real deployment of it today is.
+ * .integrations/ live directly under this path. Linux-only, by design —
+ * integra runs on a server, never on a developer's own machine, and there
+ * is no honest cross-platform story for a fixed, root-provisioned system
+ * path worth maintaining for a tool nobody runs on Windows or macOS.
  *
- * There is no relocation mechanism. The home is whatever env-paths
- * resolves for the user that ran `npm install -g @int3gra/manager`, fixed
- * at that moment, for as long as the install exists. This removes an
- * entire category of problems a movable home would otherwise need to
- * handle: no migration story, no "what if running processes are still
- * pointed at the old location," no question of whether data needs copying.
- * Anyone who genuinely needs the underlying storage on a different disk or
- * mount has exactly one lever: symlink the resolved path to wherever the
- * real storage lives, set up once, before integra is ever invoked for the
- * first time.
+ * The path is a literal constant: /opt/integra. Not resolved, not
+ * configurable, not redirectable via any environment variable or
+ * parameter. There is no relocation mechanism, and deliberately no
+ * injection seam for tests either — if a test needs to verify behaviour
+ * that depends on this path, it mocks this module's exports, it does not
+ * get a back door that the production code could also use to drift from
+ * "fixed." Anyone who genuinely needs the underlying storage on a
+ * different disk or mount has exactly one lever: symlink /opt/integra to
+ * wherever the real storage lives, set up once, before integra is ever
+ * invoked for the first time on that host.
  *
- * The suffix env-paths appends by default ("-nodejs", meant to avoid
- * collisions with native apps of the same name) is explicitly disabled
- * here — there is no competing native "integra" application, and the
- * suffix would appear in every doc example, every error message, and
- * every path a person ever has to type or read. env-paths' own docs flag
- * this as an option to leave alone "unless you really have to" — this is
- * judged to be exactly such a case.
- *
- * postinstall.js is the only place that creates anything at this path on
- * a fresh install; this module is read-mostly elsewhere.
+ * Nothing creates this path automatically anymore. `integra setup` (see
+ * @int3gra/cli's setup command) is the one and only thing that creates
+ * it, and it must be run by hand, once, by whoever is provisioning the
+ * host — typically as root, since /opt requires elevated privileges to
+ * write into. Every other entry point calls assertIntegraHomeExists()
+ * first and fails hard, with a message pointing at `integra setup`,
+ * rather than silently creating the directory or working around its
+ * absence.
  */
 
-import envPaths from "env-paths";
 import { readFile, writeFile, mkdir } from "fs/promises";
+import { existsSync, statSync } from "fs";
 import { resolve } from "path";
 
 const PROJECT_NAME = "integra";
+const FIXED_HOME    = "/opt/integra";
 
 /**
- * Returns the absolute path to integra's fixed home directory. Pure given
- * the environment — no filesystem access, no caching across calls (cheap
- * enough to recompute, and recomputing means it always reflects the
- * current environment rather than whatever it was at first import, which
- * matters for tests that override XDG_DATA_HOME between cases).
+ * Returns the absolute path to integra's fixed home directory. A literal
+ * constant — see the module docstring for why this is deliberately not
+ * configurable.
  */
 export function resolveIntegraHome() {
-  return envPaths(PROJECT_NAME, { suffix: "" }).data;
+  return FIXED_HOME;
+}
+
+/**
+ * Throws if integra's home does not exist (or exists but isn't a
+ * directory — e.g. a stray file at the path). Every command that touches
+ * registry.d/ or .integrations/ calls this first, so a host that was
+ * never set up fails immediately with a clear, actionable message rather
+ * than partway through, or silently creating state in the wrong place.
+ *
+ * Synchronous and side-effect-free (a stat check, nothing else) so it can
+ * be called as the very first line of any entry point without ceremony.
+ */
+export function assertIntegraHomeExists(home = resolveIntegraHome()) {
+  if (!existsSync(home) || !statSync(home).isDirectory()) {
+    throw new Error(
+      "App was not fully setup, run `integra setup` as sudo."
+    );
+  }
 }
 
 function configPath(home) {
@@ -54,8 +69,7 @@ function configPath(home) {
 
 /**
  * Reads config.json from the home directory. Returns null if it doesn't
- * exist yet — callers decide what that means (typically: integra hasn't
- * been installed/initialised on this host, or postinstall hasn't run).
+ * exist yet — callers decide what that means.
  */
 export async function readHomeConfig(home = resolveIntegraHome()) {
   try {
@@ -69,9 +83,9 @@ export async function readHomeConfig(home = resolveIntegraHome()) {
 
 /**
  * Writes config.json to the home directory, creating the directory if
- * needed. Used by postinstall.js on a fresh install, and available for
- * any future global setting (e.g. a lock TTL or sweep threshold override)
- * to grow into without inventing a second mechanism.
+ * needed. Used by `integra setup` on first provisioning, and available
+ * for any future global setting (e.g. a lock TTL or sweep threshold
+ * override) to grow into without inventing a second mechanism.
  */
 export async function writeHomeConfig(config, home = resolveIntegraHome()) {
   await mkdir(home, { recursive: true });

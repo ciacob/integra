@@ -2,22 +2,35 @@
 /**
  * packages/cli/test/branchTarget.test.js
  *
- * resolveBranchTarget now reads integra's fixed home (resolved via
- * env-paths) instead of walking upward from cwd looking for registry.d/.
- * Tests isolate that fixed home per-test via XDG_DATA_HOME, which
- * env-paths itself honours — confirmed directly before relying on it here.
+ * resolveBranchTarget reads integra's fixed home (/opt/integra in
+ * production — see @int3gra/manager's home.js) instead of walking upward
+ * from cwd looking for registry.d/. The home is a literal constant with
+ * no override mechanism by design, so these tests mock
+ * @int3gra/manager/home's resolveIntegraHome/assertIntegraHomeExists to
+ * point at a per-test tmpdir, rather than touching the real /opt/integra.
+ * Everything else here (git push into a real repo, archive resolution,
+ * banner construction) is real and unmocked — that's the actual subject
+ * of this file.
  */
 
+import { jest } from "@jest/globals";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "fs/promises";
 import { tmpdir }   from "os";
 import { join }     from "path";
 import { execSync } from "child_process";
 
-import { resolveBranchTarget } from "../src/branchTarget.js";
+let mockHome;
+
+jest.unstable_mockModule("@int3gra/manager/home", () => ({
+  resolveIntegraHome:     () => mockHome,
+  assertIntegraHomeExists: () => {}, // mockHome always exists in these tests — nothing to assert
+}));
+
+const { resolveBranchTarget } = await import("../src/branchTarget.js");
 
 describe("resolveBranchTarget", () => {
   let home, liveDir, devCwd, xdgRoot;
-  let priorSweepDisableFlag, priorXdgDataHome;
+  let priorSweepDisableFlag;
 
   function sh(cmd, dir) {
     return execSync(cmd, { cwd: dir, encoding: "utf-8" }).trim();
@@ -38,16 +51,11 @@ describe("resolveBranchTarget", () => {
   });
 
   beforeEach(async () => {
-    // Isolate integra's resolved home per test via XDG_DATA_HOME — this is
-    // the same env var env-paths itself reads on Linux, confirmed directly
-    // (not assumed) before relying on it as a test seam.
-    xdgRoot = await mkdtemp(join(tmpdir(), "integra-xdg-"));
-    priorXdgDataHome = process.env.XDG_DATA_HOME;
-    process.env.XDG_DATA_HOME = xdgRoot;
-
-    const { resolveIntegraHome, writeHomeConfig } = await import("@int3gra/manager/home");
-    home = resolveIntegraHome();
-    await writeHomeConfig({}, home);
+    // mockHome stands in for integra's fixed home for this test only —
+    // resolveIntegraHome/assertIntegraHomeExists are mocked above to use it.
+    xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-"));
+    mockHome = xdgRoot;
+    home     = mockHome;
 
     liveDir   = join(home, ".integrations", "my-int", "live");
 
@@ -87,8 +95,6 @@ describe("resolveBranchTarget", () => {
     // per-call cleanup ran.
     await rm(xdgRoot, { recursive: true, force: true });
     await rm(devCwd, { recursive: true, force: true });
-    if (priorXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = priorXdgDataHome;
   });
 
   async function pushBranch(branchName, entryValue) {
@@ -143,17 +149,6 @@ describe("resolveBranchTarget", () => {
     expect(result.targetDir).not.toBe(devCwd);
     const manifest = JSON.parse(await readFile(join(result.targetDir, "integra.json"), "utf-8"));
     expect(manifest.entry).toBe("patched-anywhere");
-  });
-
-  test("throws a clear error when integra's home has not been initialised (no config.json)", async () => {
-    const { resolveIntegraHome } = await import("@int3gra/manager/home");
-    // Simulate an uninitialised home: remove the config.json writeHomeConfig wrote in beforeEach.
-    const { rm: rmFile } = await import("fs/promises");
-    await rmFile(join(home, "config.json"));
-    await writeFile(join(devCwd, ".env"), "");
-
-    await expect(resolveBranchTarget({ branch: "x", env: ".env" }, devCwd))
-      .rejects.toThrow(/hasn't been initialised/i);
   });
 
   // ── Successful resolution ──────────────────────────────────────────────────

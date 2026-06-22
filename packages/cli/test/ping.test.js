@@ -6,6 +6,7 @@
  * Uses mocked fetch — no real network calls.
  */
 
+import { jest } from "@jest/globals";
 import { resolve as resolvePath } from "path";
 import { fileURLToPath }          from "url";
 import { mkdtemp, rm, writeFile,
@@ -323,12 +324,24 @@ describe("integra ping", () => {
 // Self-contained: uses a real git manager-root structure (bare remote,
 // live/ clone, registry.d/ entry) rather than the plain makeIntegrationDir
 // helper above, since --branch needs an actual fetchable branch to resolve.
+//
+// integra's home is a literal constant (/opt/integra in production — see
+// @int3gra/manager's home.js) with no override mechanism by design, so
+// this suite mocks resolveIntegraHome/assertIntegraHomeExists to point at
+// a per-test tmpdir rather than touching the real path.
+
+let mockHome;
+
+jest.unstable_mockModule("@int3gra/manager/home", () => ({
+  resolveIntegraHome:     () => mockHome,
+  assertIntegraHomeExists: () => {},
+}));
 
 describe("integra ping --branch", () => {
   let ping;
   let originalExit, exitCode;
   let originalCwd, home, liveDir, devCwd, xdgRoot;
-  let priorSweepDisableFlag, priorXdgDataHome;
+  let priorSweepDisableFlag;
 
   function sh(cmd, dir) {
     return execSync(cmd, { cwd: dir, encoding: "utf-8" }).trim();
@@ -359,16 +372,9 @@ describe("integra ping --branch", () => {
   beforeEach(async () => {
     originalCwd = process.cwd();
 
-    // Isolate integra's resolved home per test via XDG_DATA_HOME — the
-    // same mechanism resolveBranchTarget itself uses in production,
-    // confirmed directly to work with env-paths before relying on it here.
-    xdgRoot = await mkdtemp(join(tmpdir(), "integra-xdg-ping-"));
-    priorXdgDataHome = process.env.XDG_DATA_HOME;
-    process.env.XDG_DATA_HOME = xdgRoot;
-
-    const { resolveIntegraHome, writeHomeConfig } = await import("@int3gra/manager/home");
-    home = resolveIntegraHome();
-    await writeHomeConfig({}, home);
+    xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-ping-"));
+    mockHome = xdgRoot;
+    home     = mockHome;
 
     liveDir   = join(home, ".integrations", "br-int", "live");
     // The directory the command is actually invoked from — deliberately
@@ -414,8 +420,6 @@ describe("integra ping --branch", () => {
     // per-call cleanup ran.
     await rm(xdgRoot, { recursive: true, force: true });
     await rm(devCwd, { recursive: true, force: true });
-    if (priorXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = priorXdgDataHome;
     globalThis.fetch = undefined;
   });
 

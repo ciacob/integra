@@ -8,9 +8,20 @@ Developer tooling for int3gra integrations. Scaffold, validate, run, mock-test, 
 npm install -g @int3gra/engine @int3gra/cli @int3gra/manager
 ```
 
+Then, once per host, as root:
+
+```bash
+sudo integra setup
+```
+
+This provisions `/opt/integra`, integra's fixed home — see the root
+README's "Integra home" section. Every other command checks for it and
+fails immediately, with a clear message, if it's missing.
+
 ## Commands
 
 ```bash
+integra setup                    # One-off host provisioning. Run once, as root.
 integra init <name>              # Scaffold a new integration directory
 integra validate                 # Validate integra.json and all component files
 integra run <process-id>         # Execute a process locally

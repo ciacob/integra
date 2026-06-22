@@ -39,7 +39,7 @@ import { execSync }                                      from "child_process";
 import { userInfo }                                      from "os";
 
 import { buildScaffoldGuide } from "../scaffoldGuide.js";
-import { resolveIntegraHome } from "@int3gra/manager/home";
+import { resolveIntegraHome, assertIntegraHomeExists } from "@int3gra/manager/home";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE  = resolve(__dirname, "../../templates/integration");
@@ -76,17 +76,19 @@ export async function init([pathArg]) {
   }
 
   // Two distinct roots, deliberately kept separate:
-  //   home        — integra's one fixed, platform-resolved location per
-  //                  host (see @int3gra/manager's home.js). registry.d/
-  //                  and .integrations/<id>/live always live here,
+  //   home        — integra's one fixed home, /opt/integra (see
+  //                  @int3gra/manager's home.js). registry.d/ and
+  //                  .integrations/<id>/live always live here,
   //                  regardless of where `integra init` is invoked from —
   //                  the same rule every other manager/--branch operation
-  //                  already follows.
+  //                  already follows. Must already exist — `integra setup`
+  //                  (as root) is the one and only thing that creates it.
   //   invokedFrom  — the actual directory the developer ran the command
   //                  from. Only the generated guide lands relative to
   //                  this (via pathArg) — integra has no opinion on where
   //                  a developer's own clone ends up, and the guide is
   //                  not part of the registered, managed state.
+  assertIntegraHomeExists();
   const home        = resolveIntegraHome();
   const invokedFrom = process.cwd();
   const id           = basename(pathArg.replace(/\/+$/, "")); // strip trailing slashes before taking last segment

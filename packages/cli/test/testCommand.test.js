@@ -4,9 +4,26 @@
  *
  * Unit tests for the pure helpers in the test command.
  * No filesystem, no network, no engine.
+ *
+ * integra's home is a literal constant (/opt/integra in production — see
+ * @int3gra/manager's home.js) with no override mechanism by design, so
+ * the --branch suite below mocks resolveIntegraHome/assertIntegraHomeExists
+ * to point at a per-test tmpdir rather than touching the real path. Jest
+ * hoists jest.mock/unstable_mockModule calls above imports, so this is
+ * registered before test.js (and what it pulls in) is ever evaluated,
+ * despite test.js being statically imported below.
  */
 
-import { resolveResponseFixture } from "../src/commands/test.js";
+import { jest } from "@jest/globals";
+
+let mockHome;
+
+jest.unstable_mockModule("@int3gra/manager/home", () => ({
+  resolveIntegraHome:     () => mockHome,
+  assertIntegraHomeExists: () => {},
+}));
+
+const { resolveResponseFixture } = await import("../src/commands/test.js");
 
 // ── resolveResponseFixture ────────────────────────────────────────────────────
 
@@ -101,7 +118,7 @@ describe("integra test --branch", () => {
   let runTestCommand;
   let originalExit, exitCode;
   let originalCwd, home, liveDir, devCwd, xdgRoot;
-  let priorSweepDisableFlag, priorXdgDataHome;
+  let priorSweepDisableFlag;
 
   async function sh(cmd, dir) {
     const { execSync } = await import("child_process");
@@ -136,14 +153,9 @@ describe("integra test --branch", () => {
 
     originalCwd = process.cwd();
 
-    // Isolate integra's resolved home per test via XDG_DATA_HOME.
-    xdgRoot = await mkdtemp(join(tmpdir(), "integra-xdg-test-"));
-    priorXdgDataHome = process.env.XDG_DATA_HOME;
-    process.env.XDG_DATA_HOME = xdgRoot;
-
-    const { resolveIntegraHome, writeHomeConfig } = await import("@int3gra/manager/home");
-    home = resolveIntegraHome();
-    await writeHomeConfig({}, home);
+    xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-test-"));
+    mockHome = xdgRoot;
+    home     = mockHome;
 
     liveDir   = join(home, ".integrations", "tb-int", "live");
     // The directory the command is invoked from — deliberately unrelated
@@ -189,8 +201,6 @@ describe("integra test --branch", () => {
     // inside it — removing xdgRoot covers both in one pass.
     await rm(xdgRoot, { recursive: true, force: true });
     await rm(devCwd, { recursive: true, force: true });
-    if (priorXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = priorXdgDataHome;
     globalThis.fetch = undefined;
   });
 

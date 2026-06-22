@@ -118,6 +118,16 @@ npm install -g @int3gra/engine @int3gra/cli @int3gra/manager
 
 This gives you three global commands: `integra`, `integra-manager`, and `integra-engine`.
 
+**Then, once per host, as root:**
+
+```bash
+sudo integra setup
+```
+
+This provisions `/opt/integra` — see "Integra home" below. Nothing else
+works until this has been run; every command checks for it and fails
+immediately, with a clear message, if it's missing.
+
 **To work from source:**
 
 ```bash
@@ -127,6 +137,7 @@ npm install
 cd packages/engine && npm link
 cd ../cli          && npm link
 cd ../manager      && npm link
+sudo integra setup
 ```
 
 ---
@@ -134,31 +145,40 @@ cd ../manager      && npm link
 ## Integra home
 
 `@int3gra/manager`'s `registry.d/` and `.integrations/` live at one fixed
-location per host — integra's "home" — resolved automatically via
-[`env-paths`](https://github.com/sindresorhus/env-paths), the same
-platform-aware convention used by many Node CLI tools:
+location on the host — integra's "home": **`/opt/integra`**. A literal
+constant, not resolved per-platform, not configurable, not relocatable.
+integra is a Linux server tool — there is no developer-machine install,
+and no honest cross-platform story for a fixed, root-provisioned system
+path worth maintaining for a tool nobody runs on Windows or macOS.
 
-| Platform | Default home |
-|---|---|
-| Linux | `$XDG_DATA_HOME/integra` (usually `~/.local/share/integra`) |
-| macOS | `~/Library/Application Support/integra` |
-| Windows | `%LOCALAPPDATA%\integra\Data` |
+**Nothing creates this path automatically.** Run `integra setup` once, by
+hand, as root (or via `sudo`), before using any other integra command on
+a fresh host:
 
-This is set up automatically — `@int3gra/manager`'s `postinstall` script
-creates the home directory and a minimal `config.json` the first time it's
-installed. It never overwrites an existing `config.json`, including on
-reinstall or upgrade, and it never touches anything outside that one
-resolved path.
+```bash
+sudo integra setup
+```
 
-**The home is fixed at install time — there is no relocation command.**
-This removes an entire category of operational risk: there is no migration
-step, no question of whether a running integration is pointed at an old
-location, nothing to keep in sync. If you genuinely need the underlying
-storage on a different disk or mount (a common need — the OS disk is often
-smaller than where you'd want `.integrations/` to actually live), the
-supported approach is a symlink: point the resolved home path at wherever
-the real storage lives, set up once, before integra is invoked for the
-first time on that host.
+This creates `/opt/integra` (mode `0777` — see below for why), and writes
+a minimal `config.json` the first time it runs. It never overwrites an
+existing `config.json`, including on repeated runs, so re-running `setup`
+is always safe.
+
+Every other command — `integra-manager`'s runtime and registry
+subcommands, `integra init`, and `--branch` on `run`/`validate`/`ping`/`test`
+— checks that `/opt/integra` exists before doing anything else, and fails
+immediately with a clear message (`App was not fully setup, run `integra
+setup` as sudo.`) if it doesn't. There is no silent fallback, no lazy
+creation on first use.
+
+**The home is fixed — there is no relocation command.** This removes an
+entire category of operational risk: there is no migration step, no
+question of whether a running integration is pointed at an old location,
+nothing to keep in sync. If you genuinely need the underlying storage on
+a different disk or mount (a common need — the OS disk is often smaller
+than where you'd want `.integrations/` to actually live), the supported
+approach is a symlink: point `/opt/integra` at wherever the real storage
+lives, set up once, before `integra setup` is ever run on that host.
 
 This is also why `--branch` (see "Git-backed deploy" below) can be run
 from any directory — every command resolves the same fixed home rather
@@ -166,19 +186,15 @@ than searching for one relative to wherever it happens to be invoked from.
 
 ### Filesystem permissions on integra's home
 
-Install as a dedicated, unprivileged OS user (e.g. `integra-svc`), not as
-root or any individual developer's own account — this keeps the install
-tidy and gives PM2's processes a consistent owner, independent of whoever
-happens to run `npm install`.
-
-Leave the resulting home directory at whatever default permissions
-`postinstall` creates it with. integra is built for a team that already
-trusts each other with `git push` access to `live/` — a far more
-consequential capability than reading or writing a registry entry or a
-lock file. The real protections (lock contention, validation gates,
+`integra setup` creates `/opt/integra` mode `0777`, owned by whoever ran
+it. This is deliberate, not an oversight: integra is built for a team
+that already trusts each other with `git push` access to `live/` — a far
+more consequential capability than reading or writing a registry entry
+or a lock file. The real protections (lock contention, validation gates,
 fast-forward-only deploys) live in the command logic and apply regardless
 of filesystem permissions; there is no realistic threat model here that
-calls for an additional, separate access-control layer on top.
+calls for a separate access-control layer on top, and a permissive mode
+means no team ever has to fight `EACCES` errors to get work done.
 
 ---
 

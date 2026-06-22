@@ -6,11 +6,13 @@
  * git init there, registry.d/ registration, and guide delivery to the
  * originally requested path.
  *
- * init() now registers against integra's one fixed home (resolved via
- * env-paths) rather than process.cwd() — the same rule every other
- * manager/--branch operation already follows. Tests isolate that fixed
- * home per-test via XDG_DATA_HOME, which env-paths itself honours (see
- * branchTarget.test.js, which established this seam first).
+ * init() registers against integra's one fixed home (/opt/integra in
+ * production — see @int3gra/manager's home.js) rather than process.cwd().
+ * The home is a literal constant with no override mechanism by design,
+ * so these tests mock @int3gra/manager/home's resolveIntegraHome and
+ * assertIntegraHomeExists to point at a per-test tmpdir, rather than
+ * touching the real /opt/integra (see branchTarget.test.js, which
+ * established this approach first).
  *
  * The guide is the one thing that still lands relative to the real
  * invocation directory (cwd) — it is not part of the registered, managed
@@ -18,28 +20,31 @@
  * related is asserted against `home`.
  */
 
+import { jest } from "@jest/globals";
 import { mkdtemp, rm, mkdir, readFile, stat, access, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { execSync } from "child_process";
 
-import { init } from "../src/commands/init.js";
+let mockHome;
+
+jest.unstable_mockModule("@int3gra/manager/home", () => ({
+  resolveIntegraHome:     () => mockHome,
+  assertIntegraHomeExists: () => {}, // mockHome always exists in these tests — nothing to assert
+}));
+
+const { init } = await import("../src/commands/init.js");
 
 describe("integra init", () => {
   let cwd, originalCwd;
-  let home, xdgRoot, priorXdgDataHome;
+  let home, xdgRoot;
 
   beforeEach(async () => {
-    // Isolate integra's resolved home per test via XDG_DATA_HOME — this is
-    // the same env var env-paths itself reads on Linux, confirmed directly
-    // (not assumed) in branchTarget.test.js before relying on it as a test
-    // seam here too.
-    xdgRoot = await mkdtemp(join(tmpdir(), "integra-xdg-"));
-    priorXdgDataHome = process.env.XDG_DATA_HOME;
-    process.env.XDG_DATA_HOME = xdgRoot;
-
-    const { resolveIntegraHome } = await import("@int3gra/manager/home");
-    home = resolveIntegraHome();
+    // mockHome stands in for integra's fixed home for this test only —
+    // resolveIntegraHome/assertIntegraHomeExists are mocked above to use it.
+    xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-"));
+    mockHome = xdgRoot;
+    home     = mockHome;
 
     // cwd simulates "wherever the developer happens to be standing when
     // they run `integra init`" — deliberately a different directory than
@@ -58,8 +63,6 @@ describe("integra init", () => {
     process.chdir(originalCwd);
     await rm(cwd, { recursive: true, force: true });
     await rm(xdgRoot, { recursive: true, force: true });
-    if (priorXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = priorXdgDataHome;
   });
 
   // ── Basic usage ────────────────────────────────────────────────────────────

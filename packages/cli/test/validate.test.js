@@ -6,18 +6,31 @@
  * inspects JSON shape and lints process structure. --branch must work on
  * it without --env, unlike run/ping. live/ IS the repository — no
  * separate bare remote; developer clones push branches directly into it.
+ *
+ * integra's home is a literal constant (/opt/integra in production — see
+ * @int3gra/manager's home.js) with no override mechanism by design, so
+ * this suite mocks resolveIntegraHome/assertIntegraHomeExists to point at
+ * a per-test tmpdir rather than touching the real path.
  */
 
+import { jest } from "@jest/globals";
 import { mkdtemp, rm, writeFile, mkdir } from "fs/promises";
 import { tmpdir }   from "os";
 import { join }     from "path";
 import { execSync } from "child_process";
 
-import { validate } from "../src/commands/validate.js";
+let mockHome;
+
+jest.unstable_mockModule("@int3gra/manager/home", () => ({
+  resolveIntegraHome:     () => mockHome,
+  assertIntegraHomeExists: () => {},
+}));
+
+const { validate } = await import("../src/commands/validate.js");
 
 describe("integra validate --branch", () => {
   let originalCwd, home, liveDir, devCwd, xdgRoot;
-  let priorSweepDisableFlag, priorXdgDataHome;
+  let priorSweepDisableFlag;
 
   function sh(cmd, dir) {
     return execSync(cmd, { cwd: dir, encoding: "utf-8" }).trim();
@@ -40,14 +53,9 @@ describe("integra validate --branch", () => {
   beforeEach(async () => {
     originalCwd = process.cwd();
 
-    // Isolate integra's resolved home per test via XDG_DATA_HOME.
-    xdgRoot = await mkdtemp(join(tmpdir(), "integra-xdg-validate-"));
-    priorXdgDataHome = process.env.XDG_DATA_HOME;
-    process.env.XDG_DATA_HOME = xdgRoot;
-
-    const { resolveIntegraHome, writeHomeConfig } = await import("@int3gra/manager/home");
-    home = resolveIntegraHome();
-    await writeHomeConfig({}, home);
+    xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-validate-"));
+    mockHome = xdgRoot;
+    home     = mockHome;
 
     liveDir = join(home, ".integrations", "val-int", "live");
     // The directory the command is invoked from — deliberately unrelated
@@ -86,8 +94,6 @@ describe("integra validate --branch", () => {
     process.chdir(originalCwd);
     await rm(xdgRoot, { recursive: true, force: true });
     await rm(devCwd, { recursive: true, force: true });
-    if (priorXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
-    else process.env.XDG_DATA_HOME = priorXdgDataHome;
   });
 
   async function pushBranch(branchName, manifestOverrides) {

@@ -16,10 +16,12 @@
  *
  * The integration's registry entry and .integrations/ tree live at a
  * single, fixed location — integra's "home" (see @int3gra/manager's
- * home.js), resolved via env-paths and decided once at install time, never
- * relocated. --branch reads that home directly; it no longer searches for
- * it by walking upward from cwd. This means the command can be run from
- * any directory at all — there is no requirement to `cd` anywhere first.
+ * home.js), a literal constant (/opt/integra), never relocated. It must
+ * already exist on this host — `integra setup` (run by hand, as root) is
+ * the one and only thing that creates it. --branch reads that home
+ * directly; it no longer searches for it by walking upward from cwd.
+ * This means the command can be run from any directory at all — there is
+ * no requirement to `cd` anywhere first.
  *
  * With --branch, this module:
  *
@@ -74,17 +76,9 @@ export async function resolveBranchTarget(flags, cwd, { envRequired = true } = {
     );
   }
 
-  const { resolveIntegraHome, readHomeConfig } = await import("@int3gra/manager/home");
-  const home   = resolveIntegraHome();
-  const config = await readHomeConfig(home);
-
-  if (config === null) {
-    throw new Error(
-      `integra's home (${home}) hasn't been initialised on this host.\n` +
-      `This is normally set up automatically when @int3gra/manager is installed. ` +
-      `If it's missing, reinstall @int3gra/manager or run its postinstall script directly.`
-    );
-  }
+  const { resolveIntegraHome, assertIntegraHomeExists } = await import("@int3gra/manager/home");
+  assertIntegraHomeExists();
+  const home = resolveIntegraHome();
 
   const doResolveArchive = await resolveArchiveImpl();
   const { sha, path: archivePath } = await doResolveArchive(manifest.id, flags.branch, home);

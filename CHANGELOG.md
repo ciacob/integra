@@ -1,5 +1,74 @@
 # Changelog
 
+## @int3gra/manager & @int3gra/cli — `/opt/integra`, manual setup, no more postinstall
+
+**What changed**
+
+Integra's home is now a literal constant: `/opt/integra`. Not resolved
+per-platform, not configurable, not relocatable via any environment
+variable. The previous `env-paths`-based resolution (XDG on Linux,
+Application Support on macOS, `%LOCALAPPDATA%` on Windows) is gone —
+integra is a Linux server tool, and there was no honest cross-platform
+story worth maintaining for a fixed system path nobody actually uses on
+Windows or macOS.
+
+`@int3gra/manager`'s `postinstall` npm lifecycle script has been removed
+entirely, along with its `env-paths` dependency. **Nothing creates
+`/opt/integra` automatically anymore.** A new command, `integra setup`,
+must be run by hand, once, per host — as root or via `sudo`, since `/opt`
+requires elevated privileges to write into:
+
+```bash
+sudo integra setup
+```
+
+Every command that touches `registry.d/` or `.integrations/` —
+`integra-manager`'s runtime and registry subcommands, `integra init`,
+and `--branch` on `run`/`validate`/`ping`/`test` — now checks that
+`/opt/integra` exists *before* doing anything else, and fails immediately
+with a clear message (`App was not fully setup, run \`integra setup\` as
+sudo.`) if it doesn't. There is no silent fallback and no lazy creation
+on first use, unlike before.
+
+`integra setup` creates `/opt/integra` with mode `0777`, owned by whoever
+ran it. This is a deliberate, explicit choice — see the README's "Integra
+home" section for the reasoning — not a default that happened to come out
+permissive. The previous "dedicated service user" installation
+recommendation no longer applies, since ownership now simply follows
+whoever runs `setup`.
+
+**Why no automatic creation**
+
+A fixed path under `/opt` is a system-level resource, and creating it
+automatically as a side effect of `npm install` (the old `postinstall`
+behaviour) or of any individual command's first invocation both have the
+same problem: neither is a moment where it's safe to assume the right
+permissions, the right user, or genuine operator intent. An explicit,
+human-run, root command is the only honest way to provision a path like
+this — `npm` lifecycle scripts writing unconditionally to the filesystem
+is exactly the pattern that has burned the ecosystem before.
+
+**Why no relocation command, still**
+
+Unchanged from the previous entry below: the home is fixed, permanently,
+for the same reasons. Symlink `/opt/integra` to wherever the real storage
+should live, once, before `integra setup` is ever run on that host, if
+the default location doesn't suit your disk layout.
+
+**What you need to do**
+
+For any host that already has a `registry.d/`/`.integrations/` tree at
+the old `env-paths`-resolved location (e.g. `~/.local/share/integra`):
+move that tree to `/opt/integra`, or symlink `/opt/integra` to where it
+already lives — then run `sudo integra setup` to ensure `config.json`
+exists (it's a no-op if the directory you moved/symlinked already has
+one). For fresh hosts: `npm install`, then `sudo integra setup`, in that
+order, before running anything else.
+
+See the README's "Integra home" section for the full model.
+
+---
+
 ## @int3gra/manager — Fixed integra home (replaces cwd-based --branch discovery)
 
 **What changed**
