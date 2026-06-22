@@ -39,6 +39,7 @@ import { execSync }                                      from "child_process";
 import { userInfo }                                      from "os";
 
 import { buildScaffoldGuide } from "../scaffoldGuide.js";
+import { resolveIntegraHome } from "@int3gra/manager/home";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE  = resolve(__dirname, "../../templates/integration");
@@ -74,8 +75,21 @@ export async function init([pathArg]) {
     throw new Error("Usage: integra init <path>");
   }
 
-  const cwd = process.cwd();
-  const id  = basename(pathArg.replace(/\/+$/, "")); // strip trailing slashes before taking last segment
+  // Two distinct roots, deliberately kept separate:
+  //   home        — integra's one fixed, platform-resolved location per
+  //                  host (see @int3gra/manager's home.js). registry.d/
+  //                  and .integrations/<id>/live always live here,
+  //                  regardless of where `integra init` is invoked from —
+  //                  the same rule every other manager/--branch operation
+  //                  already follows.
+  //   invokedFrom  — the actual directory the developer ran the command
+  //                  from. Only the generated guide lands relative to
+  //                  this (via pathArg) — integra has no opinion on where
+  //                  a developer's own clone ends up, and the guide is
+  //                  not part of the registered, managed state.
+  const home        = resolveIntegraHome();
+  const invokedFrom = process.cwd();
+  const id           = basename(pathArg.replace(/\/+$/, "")); // strip trailing slashes before taking last segment
 
   if (!id) {
     throw new Error(`Could not determine an integration id from path: ${pathArg}`);
@@ -87,9 +101,9 @@ export async function init([pathArg]) {
   // be sufficient in practice — both are checked anyway, for peace of mind,
   // at the cost of one extra existsSync call.
 
-  const integrationsRoot = resolve(cwd, ".integrations");
+  const integrationsRoot = resolve(home, ".integrations");
   const liveDir           = resolve(integrationsRoot, id, "live");
-  const registryDir       = resolve(cwd, "registry.d");
+  const registryDir       = resolve(home, "registry.d");
   const entryPath          = resolve(registryDir, `${id}.registry.json`);
 
   if (existsSync(resolve(integrationsRoot, id))) {
@@ -158,7 +172,7 @@ export async function init([pathArg]) {
   // development happens, and integra has no opinion on where the
   // developer's own clone ends up.
 
-  const guideTarget = resolve(cwd, pathArg);
+  const guideTarget = resolve(invokedFrom, pathArg);
   mkdirSync(guideTarget, { recursive: true });
 
   const host = resolvePublicHost();

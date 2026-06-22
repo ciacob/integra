@@ -18,6 +18,7 @@ import { duplicate }                                from "./commands/duplicate.j
 import { deploy }                                   from "./commands/deploy.js";
 import { undeploy }                                 from "./commands/undeploy.js";
 import { deployHistory }                            from "./commands/deployHistory.js";
+import { resolveIntegraHome }                       from "./home.js";
 
 const [,, command, ...args] = process.argv;
 
@@ -65,7 +66,9 @@ Registry entry fields:
   max_ttl     Seconds before TC forcibly kills a runaway scheduled integration
   env_file    Relative path to a non-default env file
 
-Run from the directory containing registry.d/.
+Every command resolves integra's one fixed home automatically (see the
+README's "Integra home" section) — there is no need to run this from any
+particular directory.
 `;
 
 async function main() {
@@ -74,7 +77,12 @@ async function main() {
     process.exit(0);
   }
 
-  const cwd = process.cwd();
+  // Every command operates against integra's one fixed home — resolved via
+  // env-paths, set once at install time (see home.js) — never against
+  // whatever directory the command happens to be invoked from. This is
+  // what lets integra-manager (and --branch, in @int3gra/cli) be run from
+  // anywhere on the host, with no "cd to where registry.d/ lives" step.
+  const cwd = resolveIntegraHome();
 
   switch (command) {
     case "start": {
