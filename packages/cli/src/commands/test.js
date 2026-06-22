@@ -29,6 +29,8 @@ import { readdir, readFile }        from "fs/promises";
 import { resolve, join, basename }  from "path";
 import { existsSync }               from "fs";
 import { createHmac }               from "crypto";
+import { parseArgs }                from "../args.js";
+import { resolveBranchTarget }      from "../branchTarget.js";
 
 const FIXTURES_DIR    = "test/fixtures";
 const WEBHOOKS_DIR    = "test/fixtures/webhooks";
@@ -248,19 +250,26 @@ async function runListenerTest(cwd) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 export async function test(argv) {
-  const cwd = process.cwd();
+  const { flags } = parseArgs(argv);
+  const cwd       = process.cwd();
+
+  // test never uses real credentials, so --branch does NOT require --env
+  // here — the one deliberate exception to the rule the other three
+  // commands enforce.
+  const { targetDir, banner } = await resolveBranchTarget(flags, cwd, { envRequired: false });
 
   const { readManifest } = await import("@int3gra/engine");
-  const manifest  = await readManifest(cwd);
+  const manifest  = await readManifest(targetDir);
   const lifecycle = manifest.lifecycle ?? null;
 
-  console.log(`\nMock-testing integration: ${manifest.id ?? cwd}`);
+  console.log(`\nMock-testing integration: ${manifest.id ?? targetDir}`);
+  banner.forEach(line => console.log(line));
 
   if (lifecycle === "listener") {
-    const result = await runListenerTest(cwd);
+    const result = await runListenerTest(targetDir);
     if (!result.ok) process.exit(1);
   } else {
-    const result = await runOutboundTest(cwd);
+    const result = await runOutboundTest(targetDir);
     if (!result.ok) process.exit(1);
   }
 }

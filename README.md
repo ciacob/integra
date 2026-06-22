@@ -131,6 +131,57 @@ cd ../manager      && npm link
 
 ---
 
+## Integra home
+
+`@int3gra/manager`'s `registry.d/` and `.integrations/` live at one fixed
+location per host — integra's "home" — resolved automatically via
+[`env-paths`](https://github.com/sindresorhus/env-paths), the same
+platform-aware convention used by many Node CLI tools:
+
+| Platform | Default home |
+|---|---|
+| Linux | `$XDG_DATA_HOME/integra` (usually `~/.local/share/integra`) |
+| macOS | `~/Library/Application Support/integra` |
+| Windows | `%LOCALAPPDATA%\integra\Data` |
+
+This is set up automatically — `@int3gra/manager`'s `postinstall` script
+creates the home directory and a minimal `config.json` the first time it's
+installed. It never overwrites an existing `config.json`, including on
+reinstall or upgrade, and it never touches anything outside that one
+resolved path.
+
+**The home is fixed at install time — there is no relocation command.**
+This removes an entire category of operational risk: there is no migration
+step, no question of whether a running integration is pointed at an old
+location, nothing to keep in sync. If you genuinely need the underlying
+storage on a different disk or mount (a common need — the OS disk is often
+smaller than where you'd want `.integrations/` to actually live), the
+supported approach is a symlink: point the resolved home path at wherever
+the real storage lives, set up once, before integra is invoked for the
+first time on that host.
+
+This is also why `--branch` (see "Git-backed deploy" below) can be run
+from any directory — every command resolves the same fixed home rather
+than searching for one relative to wherever it happens to be invoked from.
+
+### Filesystem permissions on integra's home
+
+Install as a dedicated, unprivileged OS user (e.g. `integra-svc`), not as
+root or any individual developer's own account — this keeps the install
+tidy and gives PM2's processes a consistent owner, independent of whoever
+happens to run `npm install`.
+
+Leave the resulting home directory at whatever default permissions
+`postinstall` creates it with. integra is built for a team that already
+trusts each other with `git push` access to `live/` — a far more
+consequential capability than reading or writing a registry entry or a
+lock file. The real protections (lock contention, validation gates,
+fast-forward-only deploys) live in the command logic and apply regardless
+of filesystem permissions; there is no realistic threat model here that
+calls for an additional, separate access-control layer on top.
+
+---
+
 ## Developer workflow
 
 ```bash
@@ -329,10 +380,15 @@ integra-manager delete <id> [--purge]     # remove an entry (--purge also delete
 integra-manager duplicate <id> <new-id>   # clone an entry + its integration folder
 ```
 
-There is no separate "create" command — registering a brand-new integration
-is the same `checkout → edit → publish` path, just on an `id` that doesn't
-exist yet. `checkout` seeds a minimal template in that case instead of
-copying live content.
+There is no separate "create" command for registry entries. `integra init
+<path>` (run by the developer, not the manager) is the one creation path —
+it scaffolds the integration's real working tree directly into
+`.integrations/<id>/live`, turns that into a git repository, and registers
+it in `registry.d/` in the same step. `checkout` is edit-only: it refuses
+outright on an id that isn't already registered, rather than silently
+seeding a template — a typo'd id should be a clear error, not a ghost
+entry. See "Git-backed deploy" below for the full picture of how
+`.integrations/<id>/live` fits together with `init`, `deploy`, and `undeploy`.
 
 **Locks are exclusive and time-boxed** (30 minutes by default). Only the
 user who acquired a lock may publish or uncheckout against it — unless it
@@ -357,6 +413,130 @@ integra-manager disable my-sn-jira
 `enable`/`disable` internally perform their own checkout → edit → publish
 cycle, so they're correctly rejected if someone else currently holds a live
 lock on that integration — they are not a backdoor around the lock layer.
+
+---
+
+## Git-backed deploy
+
+`integra init <path>` scaffolds an integration's real working tree directly
+into `.integrations/<id>/live` — not at `<path>` itself — and turns it into
+a git repository immediately. At that moment there is no `.env` yet, so
+there is nothing sensitive in the repository; this is what makes it safe
+to do unconditionally, for every integration, from the very first second
+it exists.
+
+```
+.integrations/<id>/
+  live/     ← what PM2 runs and what `deploy`/`undeploy` operate on
+  tests/    ← ephemeral, content-addressed archives used by --branch (see below)
+```
+
+`<path>` itself receives only a generated guide — `<id>.guide.md` — with
+the clone command for this host, a dev workflow, and a command reference.
+It is not where development happens, and integra has no opinion on where a
+developer's own clone ends up; that's intentionally not integra's business.
+
+**`live/` IS the repository — it has no remote of its own and never
+fetches from anywhere.** A developer clones it directly
+(`git clone <user>@<host>:<liveDir>`), which, by git's own default
+behaviour, gives their clone an `origin` pointing back at `live/` — no
+configuration needed on integra's part. They push branches *into* `live/`
+itself. From that moment, the branch is an ordinary local branch inside
+`live/`'s own history — there's no separate hosting service, no fetch
+step, anywhere in the picture.
+
+**`live/` is never hand-edited, the same way `registry.d/` never is.**
+Pushing a branch into it does not by itself affect the running
+integration — it just makes that branch exist there. Promotion is
+explicit:
+
+```bash
+integra-manager deploy my-sn-jira --branch my-patch   # fast-forward + restart
+```
+
+**Push access** to `live/` is an SSH/filesystem-permissions question, not
+something integra brokers — if a developer can SSH into the host, the
+assumption is they can push.
+
+### Fast-forward only
+
+`deploy` merges the named branch — already pushed into `live/` — with
+`git merge --ff-only`, a plain local merge. If it doesn't fast-forward
+cleanly — `live/` has diverged, usually because of a direct edit that was
+never pushed as a branch — the deploy is refused outright and **`live/` is
+left exactly as it was**. This is deliberate: a deploy command that can
+leave a production host in a half-merged state, unattended, is worse than
+one that simply refuses. Resolve the divergence in your own clone, push,
+and try again.
+
+### Rollback
+
+```bash
+integra-manager undeploy my-sn-jira
+integra-manager deploy-history my-sn-jira -n 5
+```
+
+Each successful deploy is recorded as an annotated git tag (`deploy-<n>`)
+whose own message — not the underlying commit's message, which belongs to
+the developer, not to the deploy — records the branch, who deployed, and
+when. `undeploy` moves `live/` to the deploy tag before the current one,
+**never `HEAD~1`** — `HEAD~1` only means "the previous deploy" if every
+single commit in `live/`'s history happens to be exactly one deploy, an
+assumption a single direct commit breaks. Tags name deploys explicitly, so
+rollback is correct regardless of what else has touched the repository.
+`deploy-history` is built entirely from these same tags — no separate
+bookkeeping file.
+
+### Trying a branch without deploying — `--branch`
+
+`run`, `validate`, `ping`, and `test` all accept `--branch <name>`:
+
+```bash
+integra test                                          # live/, mocked, as always
+integra test     --branch my-patch                    # that branch, mocked — no --env needed
+integra validate --branch my-patch                    # structural checks only — no --env needed
+integra run      <process-id> --branch my-patch --env .env.dev
+integra ping      --branch my-patch --env .env.dev
+```
+
+**`--branch` requires `--env`** on `run` and `ping`, which read real
+credentials and environment values — but not on `test` or `validate`,
+neither of which ever reads `process.env` or touches a real system.
+`validate` only inspects JSON shape and lints process structure;
+`{{env.X}}` placeholders are resolved later, at execution time, not during
+validation. Requiring `--env` where it does nothing would just be
+ceremony. Where it *is* required, it's deliberate: without it, the obvious
+failure mode is testing a patch branch and silently falling back to
+default `.env` — which, for a long-lived integration, is very plausibly
+production credentials.
+
+**Push your branch into `live/` before you `--branch`.** These commands
+always read the branch as it exists in `live/`'s own history — there is no
+fetch step, so a branch that only exists in your own uncommitted clone
+isn't visible to them yet.
+
+**This is the normal way to try out your own work.** integra only ever
+runs on the server — there's no separate developer-machine install. So the
+usual flow is: push your branch into `live/`, then from the same server,
+run `integra test --branch my-patch` (or `run`/`validate`/`ping`) to verify
+it before asking for `integra-manager deploy`. **`--branch` can be run from
+any directory** — there is no need to `cd` into the integration's `live/`
+tree, or anywhere else in particular, first. The integration's registry
+entry and `.integrations/` tree are found by reading integra's fixed home
+directory (see "Integra home" below), not by searching upward from wherever
+the command happens to be invoked.
+
+**Listener integrations are the one case worth a second look.** `integra
+run --branch X` against a listener starts a real, resident Fastify server
+that PM2 does not manage. It keeps running until you stop it yourself.
+
+Each distinct branch state is archived once into
+`.integrations/<id>/tests/<commit-sha>/` — content-addressed by commit, not
+by time, so a second request for an unchanged branch reuses the existing
+archive instead of re-archiving. A background sweep (started automatically
+the first time it's needed, and stopped automatically once there's nothing
+left to do) reclaims archive folders that haven't been touched in two
+hours — a fixed safety net for abandoned runs, not a tuning knob.
 
 ---
 

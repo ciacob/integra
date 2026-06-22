@@ -7,7 +7,8 @@
     "integra": "src/index.js"
   },
   "dependencies": {
-    "@int3gra/engine": "*"
+    "@int3gra/engine": "*",
+    "@int3gra/manager": "*"
   },
   "license": "BSL-1.1",
   "publishConfig": {

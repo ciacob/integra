@@ -10,6 +10,7 @@
  *   integra ping --con sn-get-incident    # fires a specific connection
  *   integra ping --con sn-get-incident,jira-create-issue  # fires multiple
  *   integra ping --env .env.dev           # with a specific env file
+ *   integra ping --branch patch-x --env .env.dev  # ping a branch's no-op, not live's
  *
  * When --con is absent, the fixed id "no-op" is used. The implementor is
  * responsible for providing connections that are safe to fire without a body.
@@ -21,6 +22,7 @@
 import { resolve }    from "path";
 import { existsSync } from "fs";
 import { parseArgs }  from "../args.js";
+import { resolveBranchTarget } from "../branchTarget.js";
 
 const NO_OP_ID = "no-op";
 
@@ -86,13 +88,23 @@ export async function ping(argv) {
   const { flags } = parseArgs(argv);
   const cwd       = process.cwd();
 
+  // ── Branch resolution (no-op unless --branch is given) ──────────────────────
+
+  const { targetDir, banner, envFile: branchEnvFile } = await resolveBranchTarget(flags, cwd);
+
   // ── Env file ────────────────────────────────────────────────────────────────
+  // When --branch was given, resolveBranchTarget already validated and
+  // resolved --env. Otherwise, fall back to the existing default-.env logic.
 
-  const envFileName = flags.env ?? ".env";
-  const envFile     = resolve(cwd, envFileName);
-
-  if (!existsSync(envFile)) {
-    throw new Error(`Env file not found: ${envFile}`);
+  let envFile;
+  if (flags.branch) {
+    envFile = branchEnvFile;
+  } else {
+    const envFileName = flags.env ?? ".env";
+    envFile = resolve(cwd, envFileName);
+    if (!existsSync(envFile)) {
+      throw new Error(`Env file not found: ${envFile}`);
+    }
   }
 
   const { loadEnvFile }               = await import("@int3gra/engine");
@@ -109,12 +121,12 @@ export async function ping(argv) {
     ? flags.con.split(",").map(s => s.trim()).filter(Boolean)
     : [NO_OP_ID];
 
-  // ── Load registry and resolvers ─────────────────────────────────────────────
+  // ── Load registry and resolvers — against targetDir, not necessarily cwd ───
 
-  const registry      = await load(cwd);
+  const registry      = await load(targetDir);
   const resolverPaths = collectResolverPaths(registry);
-  const resolvers     = await loadResolvers(resolverPaths, cwd);
-  const storage       = createStorage(cwd);
+  const resolvers     = await loadResolvers(resolverPaths, targetDir);
+  const storage       = createStorage(targetDir);
 
   const ctx = {
     env:       process.env,
@@ -145,8 +157,10 @@ export async function ping(argv) {
 
   // ── Banner ──────────────────────────────────────────────────────────────────
 
+  banner.forEach(line => console.log(line));
+
   const noun = connIds.length === 1 ? "connection" : "connections";
-  console.log(`\nPinging ${connIds.length} ${noun}${flags.env ? ` (env: ${envFileName})` : ""}:\n`);
+  console.log(`\nPinging ${connIds.length} ${noun}${(!flags.branch && flags.env) ? ` (env: ${flags.env})` : ""}:\n`);
 
   // ── Fire each connection in sequence ────────────────────────────────────────
 

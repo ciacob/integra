@@ -1,5 +1,117 @@
 # Changelog
 
+## @int3gra/manager — Fixed integra home (replaces cwd-based --branch discovery)
+
+**What changed**
+
+`registry.d/` and `.integrations/` now live at one fixed, platform-aware
+location per host — resolved via `env-paths` — rather than being found by
+searching upward from the current directory. `@int3gra/manager`'s
+`postinstall` script sets this up automatically on a fresh install.
+
+This means `--branch` (on `run`/`validate`/`ping`/`test`) no longer
+requires being run from inside or beneath any particular directory — it
+can be invoked from anywhere. Previously, `--branch` walked upward from
+the current working directory looking for the nearest ancestor containing
+`registry.d/`, which meant it only worked if you happened to be standing
+inside (or beneath) that tree.
+
+**Why no relocation command**
+
+The home is fixed at install time, permanently. There is deliberately no
+`init-home`-style command to move it later — this avoids an entire
+category of problems a movable home would otherwise need to handle: no
+migration story, no question of whether a running integration is still
+pointed at an old location. If the underlying storage needs to live on a
+different disk or mount, symlink the resolved home path to it, once,
+before integra is ever invoked on that host.
+
+**What you need to do**
+
+Nothing, for new installs — `postinstall` sets the home up automatically.
+For hosts that already have a `registry.d/`/`.integrations/` tree from
+before this change: move that tree to the new fixed location (shown by
+running any integra command, or check the README's "Integra home" table
+for your platform's default), or symlink the new location to where your
+existing tree already lives.
+
+See the README's new "Integra home" section for the full model, including
+the recommended dedicated-service-user deployment pattern.
+
+---
+
+## @int3gra/cli & @int3gra/manager — Git-backed deploy
+
+**What changed**
+
+`integra init <path>` now scaffolds the integration's real working tree
+into `.integrations/<id>/live` instead of at `<path>` itself, and turns
+`live/` into a git repository immediately. `<path>` now receives only a
+generated guide (`<id>.guide.md`) explaining how to clone it. This only
+affects newly-`init`'d integrations — existing ones, scaffolded before this
+change, are completely unaffected and require no migration. If you want an
+existing integration to gain a `live/` tree of its own, that's a manual,
+deliberate restructuring step, not something this release does for you.
+
+New manager commands:
+
+```bash
+integra-manager deploy <id> --branch <name>
+integra-manager undeploy <id>
+integra-manager deploy-history <id> [-n <count>]
+```
+
+**`live/` has no remote and never fetches.** It IS the repository.
+Developers clone it directly (which, by git's own default behaviour,
+gives their clone an `origin` pointing back at `live/` automatically) and
+push branches directly into it. `deploy` performs a plain local
+`git merge --ff-only` against an already-pushed branch — there is no
+fetch step anywhere in this model.
+
+`checkout` now refuses on an id that isn't already registered, rather than
+silently seeding a template for it. The one and only creation path is now
+`integra init` — this closes a gap where a typo'd id during checkout could
+previously create a ghost registry entry instead of producing a clear error.
+
+New CLI flag, on `run`/`validate`/`ping`/`test`:
+
+```bash
+integra test     --branch <name>
+integra validate --branch <name>
+integra run      <process-id> --branch <name> --env <file>
+integra ping      --branch <name> --env <file>
+```
+
+`--env` is required on `run` and `ping` (which use real credentials), but
+not on `test` or `validate` (neither reads `process.env` at all). A
+branch must be pushed directly into `live/` before any of these commands
+can see it — see the README's "Git-backed deploy" section for the full
+model: fast-forward-only deploys, tag-based (not `HEAD~1`-based) rollback,
+and the ephemeral content-addressed archives `--branch` uses.
+
+**Restart behaviour, explicitly not yet changed**
+
+`deploy` and `undeploy` restart via the existing `restartOne()` — the same
+restart `integra-manager restart` already performs. This is a hard
+kill-and-respawn, with no draining of in-flight scheduled runs or inbound
+HTTP requests. A graceful, per-lifecycle restart (pause-drain-swap for
+scheduled, close-drain-swap for listener) is planned as a follow-up and is
+deliberately out of scope for this release — building the git/tag plumbing
+against an already-correct, simple restart path first, then substituting a
+better restart underneath later, was judged less risky than doing both at
+once.
+
+**Correction to an earlier draft of this feature**
+
+An earlier iteration of this work assumed `live/` would have its own
+remote that `--branch`/`deploy` would `git fetch` from, and shipped a
+`set-remote` command to configure it. That model was wrong: `live/` is
+the one repository — developers clone it directly and push branches
+*into* it, the same way any shared git repo works. `set-remote` has been
+removed; there is no remote to configure.
+
+---
+
 ## @int3gra/manager 2.0.0 — Breaking: `registry.json` → `registry.d/`
 
 **What changed**
