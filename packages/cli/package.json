@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "Developer tooling for int3gra integrations",
   "bin": {
