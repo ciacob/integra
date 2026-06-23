@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/manager",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "type": "module",
   "description": "Integration supervisor \u2014 spawns, monitors, and manages int3gra instances via PM2",
   "bin": {
