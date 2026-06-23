@@ -2,10 +2,12 @@
 /**
  * packages/cli/test/validate.test.js
  *
- * validate() never reads process.env or {{env.X}} placeholders — it only
- * inspects JSON shape and lints process structure. --branch must work on
- * it without --env, unlike run/ping. live/ IS the repository — no
- * separate bare remote; developer clones push branches directly into it.
+ * validate() requires --id and --branch — there is no longer a mode that
+ * operates on cwd directly. It never reads process.env or {{env.X}}
+ * placeholders — it only inspects JSON shape and lints process
+ * structure, so --branch works without --env, unlike run/ping. live/ IS
+ * the repository — no separate bare remote; developer clones push
+ * branches directly into it.
  *
  * integra's home is a literal constant (/opt/integra in production — see
  * @int3gra/manager's home.js) with no override mechanism by design, so
@@ -29,7 +31,7 @@ jest.unstable_mockModule("@int3gra/manager/home", () => ({
 const { validate } = await import("../src/commands/validate.js");
 
 describe("integra validate --branch", () => {
-  let originalCwd, home, liveDir, devCwd, xdgRoot;
+  let home, liveDir, xdgRoot;
   let priorSweepDisableFlag;
 
   function sh(cmd, dir) {
@@ -51,16 +53,11 @@ describe("integra validate --branch", () => {
   });
 
   beforeEach(async () => {
-    originalCwd = process.cwd();
-
     xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-validate-"));
     mockHome = xdgRoot;
     home     = mockHome;
 
     liveDir = join(home, ".integrations", "val-int", "live");
-    // The directory the command is invoked from — deliberately unrelated
-    // to home, to prove --branch doesn't require being inside it.
-    devCwd  = await mkdtemp(join(tmpdir(), "integra-validate-devcwd-"));
 
     // liveDir IS the repository — no separate bare remote.
     sh(`mkdir -p ${liveDir}`, home);
@@ -81,19 +78,10 @@ describe("integra validate --branch", () => {
       join(home, "registry.d", "val-int.registry.json"),
       JSON.stringify({ id: "val-int", path: "./.integrations/val-int/live", enabled: true })
     );
-
-    // devCwd needs its own integra.json — validate --branch reads cwd's
-    // own manifest to learn the id. Deliberately no .env written here at
-    // all, for any test in this file — proving --env is genuinely never
-    // required.
-    await writeFile(join(devCwd, "integra.json"), JSON.stringify({ id: "val-int", entry: null }));
-    process.chdir(devCwd);
   });
 
   afterEach(async () => {
-    process.chdir(originalCwd);
     await rm(xdgRoot, { recursive: true, force: true });
-    await rm(devCwd, { recursive: true, force: true });
   });
 
   async function pushBranch(branchName, manifestOverrides) {
@@ -120,19 +108,9 @@ describe("integra validate --branch", () => {
 
   test("--branch does NOT require --env (validate never reads process.env)", async () => {
     await pushBranch("feature-noenv", {});
-    // No .env exists anywhere in devCwd, home, or liveDir for this test —
-    // if validate tried to read one, it would throw "env file not found".
-    await expect(validate(["--branch", "feature-noenv"])).resolves.toBeUndefined();
-  });
-
-  test("plain validate() with no --branch also requires no --env", async () => {
-    // Same property, against live/ directly via devCwd acting as the
-    // integration directory (no --branch at all).
-    await writeFile(join(devCwd, "integra.json"), JSON.stringify({ id: "val-int", entry: null }));
-    for (const sub of ["connections", "maps", "processes", "resolvers"]) {
-      await mkdir(join(devCwd, sub), { recursive: true });
-    }
-    await expect(validate([])).resolves.toBeUndefined();
+    // No .env exists anywhere for this test — if validate tried to read
+    // one, it would throw "env file not found".
+    await expect(validate(["--id", "val-int", "--branch", "feature-noenv"])).resolves.toBeUndefined();
   });
 
   // ── Validates the BRANCH's content, not live/'s ───────────────────────────
@@ -162,7 +140,7 @@ describe("integra validate --branch", () => {
     const origLog = console.log;
     console.log = (...args) => logs.push(args.join(" "));
     try {
-      await validate(["--branch", "feature-extra-conn"]);
+      await validate(["--id", "val-int", "--branch", "feature-extra-conn"]);
     } finally {
       console.log = origLog;
     }
@@ -180,7 +158,7 @@ describe("integra validate --branch", () => {
     const origLog = console.log;
     console.log = (...args) => logs.push(args.join(" "));
     try {
-      await validate(["--branch", "feature-banner"]);
+      await validate(["--id", "val-int", "--branch", "feature-banner"]);
     } finally {
       console.log = origLog;
     }
@@ -193,6 +171,6 @@ describe("integra validate --branch", () => {
   test("a branch with an invalid integra.json fails validation, not silently passes", async () => {
     await pushBranch("feature-bad-manifest", { id: undefined }); // missing required id
 
-    await expect(validate(["--branch", "feature-bad-manifest"])).rejects.toThrow();
+    await expect(validate(["--id", "val-int", "--branch", "feature-bad-manifest"])).rejects.toThrow();
   });
 });

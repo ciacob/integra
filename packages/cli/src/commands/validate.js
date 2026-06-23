@@ -1,14 +1,15 @@
 // Copyright (c) 2026 Claudius Tiberiu Iacob — Licensed under BSL 1.1. See LICENSE for details.
 /**
  * @int3gra/cli - commands/validate.js
- * Validates integra.json, all component JSON files, and structural correctness.
+ * Validates integra.json, all component JSON files, and structural correctness
+ * for a branch already pushed into an integration's live/ repository.
  * No execution — safe to run at any time.
  *
  * Usage:
- *   integra validate
- *   integra validate --branch patch-x
+ *   integra validate --id <integration-id> --branch <name>
  *
- * --branch does NOT require --env here. validate only inspects JSON shape
+ * --id and --branch are both mandatory — see branchTarget.js. --branch
+ * does NOT require --env here. validate only inspects JSON shape
  * (integra.json, connections, maps, processes) and lints process
  * structure — it never reads process.env, and {{env.X}} placeholders are
  * resolved later, at execution time inside the executor, not during load
@@ -23,9 +24,8 @@ import { resolveBranchTarget }    from "../branchTarget.js";
 
 export async function validate(argv) {
   const { flags } = parseArgs(argv);
-  const cwd        = process.cwd();
 
-  const { targetDir, banner } = await resolveBranchTarget(flags, cwd, { envRequired: false });
+  const { targetDir, banner } = await resolveBranchTarget(flags, { envRequired: false });
 
   console.log(`\nValidating integration at: ${targetDir}`);
   banner.forEach(line => console.log(line));

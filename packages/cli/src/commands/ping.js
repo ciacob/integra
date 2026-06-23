@@ -2,16 +2,17 @@
 /**
  * @int3gra/cli - commands/ping.js
  *
- * Fires one or more connections and reports whether each remote system
+ * Fires one or more connections, from a branch already pushed into an
+ * integration's live/ repository, and reports whether each remote system
  * is reachable with the configured credentials.
  *
  * Usage:
- *   integra ping                          # fires connections/no-op.json
- *   integra ping --con sn-get-incident    # fires a specific connection
- *   integra ping --con sn-get-incident,jira-create-issue  # fires multiple
- *   integra ping --env .env.dev           # with a specific env file
- *   integra ping --branch patch-x --env .env.dev  # ping a branch's no-op, not live's
+ *   integra ping --id <integration-id> --branch <name>
+ *   integra ping --id <integration-id> --branch <name> --con sn-get-incident
+ *   integra ping --id <integration-id> --branch <name> --con sn-get-incident,jira-create-issue
+ *   integra ping --id <integration-id> --branch <name> --env .env.dev
  *
+ * --id and --branch are both mandatory — see branchTarget.js.
  * When --con is absent, the fixed id "no-op" is used. The implementor is
  * responsible for providing connections that are safe to fire without a body.
  *
@@ -19,8 +20,6 @@
  * Exit code 0 only if all connections succeed.
  */
 
-import { resolve }    from "path";
-import { existsSync } from "fs";
 import { parseArgs }  from "../args.js";
 import { resolveBranchTarget } from "../branchTarget.js";
 
@@ -86,26 +85,8 @@ async function pingOne(conn, ctx, resolveValue, resolveAuthBlock) {
 
 export async function ping(argv) {
   const { flags } = parseArgs(argv);
-  const cwd       = process.cwd();
 
-  // ── Branch resolution (no-op unless --branch is given) ──────────────────────
-
-  const { targetDir, banner, envFile: branchEnvFile } = await resolveBranchTarget(flags, cwd);
-
-  // ── Env file ────────────────────────────────────────────────────────────────
-  // When --branch was given, resolveBranchTarget already validated and
-  // resolved --env. Otherwise, fall back to the existing default-.env logic.
-
-  let envFile;
-  if (flags.branch) {
-    envFile = branchEnvFile;
-  } else {
-    const envFileName = flags.env ?? ".env";
-    envFile = resolve(cwd, envFileName);
-    if (!existsSync(envFile)) {
-      throw new Error(`Env file not found: ${envFile}`);
-    }
-  }
+  const { targetDir, banner, envFile } = await resolveBranchTarget(flags);
 
   const { loadEnvFile }               = await import("@int3gra/engine");
   const { load, collectResolverPaths } = await import("@int3gra/engine/loader");
@@ -121,7 +102,7 @@ export async function ping(argv) {
     ? flags.con.split(",").map(s => s.trim()).filter(Boolean)
     : [NO_OP_ID];
 
-  // ── Load registry and resolvers — against targetDir, not necessarily cwd ───
+  // ── Load registry and resolvers against the resolved branch's root ─────────
 
   const registry      = await load(targetDir);
   const resolverPaths = collectResolverPaths(registry);
@@ -160,7 +141,7 @@ export async function ping(argv) {
   banner.forEach(line => console.log(line));
 
   const noun = connIds.length === 1 ? "connection" : "connections";
-  console.log(`\nPinging ${connIds.length} ${noun}${(!flags.branch && flags.env) ? ` (env: ${flags.env})` : ""}:\n`);
+  console.log(`\nPinging ${connIds.length} ${noun}:\n`);
 
   // ── Fire each connection in sequence ────────────────────────────────────────
 
@@ -176,7 +157,6 @@ export async function ping(argv) {
   // ── Summary ─────────────────────────────────────────────────────────────────
 
   if (connIds.length > 1) {
-    const passed = connIds.length - (allOk ? 0 : 1);
     if (allOk) {
       console.log(`✓ All ${connIds.length} connections reachable.\n`);
     } else {

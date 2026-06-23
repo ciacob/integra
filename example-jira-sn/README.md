@@ -27,7 +27,10 @@ Supported webhook events: `jira:issue_created`, `jira:issue_updated`. Any other 
 
 ```bash
 cp .env.example .env
-# Fill in your credentials
+# Fill in your credentials, then commit — see the root README's "Env files" section
+git checkout -b try-it
+git add -A && git commit -m "add credentials"
+git push origin try-it
 ```
 
 ```env
@@ -41,10 +44,10 @@ SN_PASS=integra-pass
 
 ## Running locally
 
-Start the listener (from the `example-jira-sn` directory):
+Start the listener:
 
 ```bash
-integra run handle-jira-issue
+integra run handle-jira-issue --id example-jira-sn --branch try-it --env .env
 ```
 
 In a separate terminal, fire a test webhook:

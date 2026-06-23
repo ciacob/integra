@@ -113,11 +113,12 @@ describe("resolveResponseFixture", () => {
 // First end-to-end exercise of the test() entry point in this file — the
 // suite above only ever tested the pure resolveResponseFixture helper.
 // Uses a real git manager-root structure, same pattern as ping --branch.
+// --id and --branch are both mandatory — see branchTarget.js.
 
 describe("integra test --branch", () => {
   let runTestCommand;
   let originalExit, exitCode;
-  let originalCwd, home, liveDir, devCwd, xdgRoot;
+  let home, liveDir, xdgRoot;
   let priorSweepDisableFlag;
 
   async function sh(cmd, dir) {
@@ -151,16 +152,11 @@ describe("integra test --branch", () => {
     const { tmpdir } = await import("os");
     const { join }   = await import("path");
 
-    originalCwd = process.cwd();
-
     xdgRoot  = await mkdtemp(join(tmpdir(), "integra-home-mock-test-"));
     mockHome = xdgRoot;
     home     = mockHome;
 
     liveDir   = join(home, ".integrations", "tb-int", "live");
-    // The directory the command is invoked from — deliberately unrelated
-    // to home, to prove --branch doesn't require being inside it.
-    devCwd    = await mkdtemp(join(tmpdir(), "integra-test-devcwd-"));
 
     // liveDir IS the repository — no separate bare remote.
     await sh(`mkdir -p ${liveDir}`, home);
@@ -170,8 +166,10 @@ describe("integra test --branch", () => {
 
     // live/'s own integra.json: an outbound, run-once integration with NO
     // entry process — this is deliberate, so a test against live/ itself
-    // (no --branch) would fail fast, distinguishing "ran against live" from
-    // "ran against the branch" if the --branch wiring were ever broken.
+    // would fail fast, distinguishing "ran against live" from "ran against
+    // the branch" if the --branch wiring were ever broken. (There is no
+    // longer a code path that even attempts to run against live/ directly,
+    // but this still guards against a future regression reintroducing one.)
     await writeFile(join(liveDir, "integra.json"), JSON.stringify({ id: "tb-int", entry: null }));
     await mkdir(join(liveDir, "test", "fixtures", "responses"), { recursive: true });
     for (const sub of ["connections", "maps", "processes", "resolvers"]) {
@@ -186,21 +184,11 @@ describe("integra test --branch", () => {
       join(home, "registry.d", "tb-int.registry.json"),
       JSON.stringify({ id: "tb-int", path: "./.integrations/tb-int/live", enabled: true })
     );
-
-    // devCwd needs its own integra.json (test --branch reads cwd's own
-    // manifest to learn the id) — same deliberately-no-entry-process shape
-    // as live/'s, for the same fail-fast-if-wiring-is-broken reason.
-    await writeFile(join(devCwd, "integra.json"), JSON.stringify({ id: "tb-int", entry: null }));
-    process.chdir(devCwd);
   });
 
   afterEach(async () => {
     const { rm } = await import("fs/promises");
-    process.chdir(originalCwd);
-    // xdgRoot contains home/.integrations/.../live AND any dev clones created
-    // inside it — removing xdgRoot covers both in one pass.
     await rm(xdgRoot, { recursive: true, force: true });
-    await rm(devCwd, { recursive: true, force: true });
     globalThis.fetch = undefined;
   });
 
@@ -229,7 +217,7 @@ describe("integra test --branch", () => {
     await sh("git push -q origin feature-mocktest", devClone);
 
     // No --env given at all — must not throw on that account.
-    await expect(runTestCommand(["--branch", "feature-mocktest"])).resolves.toBeUndefined();
+    await expect(runTestCommand(["--id", "tb-int", "--branch", "feature-mocktest"])).resolves.toBeUndefined();
   });
 
   test("--branch banner is printed and names the branch", async () => {
@@ -256,7 +244,7 @@ describe("integra test --branch", () => {
     const origLog = console.log;
     console.log = (...args) => logs.push(args.join(" "));
     try {
-      await runTestCommand(["--branch", "feature-banner2"]);
+      await runTestCommand(["--id", "tb-int", "--branch", "feature-banner2"]);
     } finally {
       console.log = origLog;
     }

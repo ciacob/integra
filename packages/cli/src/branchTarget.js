@@ -2,59 +2,73 @@
 /**
  * @int3gra/cli - branchTarget.js
  *
- * Shared resolution for the `--branch` flag across run/validate/ping/test.
- * Without --branch, every command operates on process.cwd() exactly as
- * before — this module is a no-op in that case.
+ * Shared resolution for run/validate/ping/test. --branch and --id are
+ * both mandatory — there is no "operate on whatever directory you
+ * happen to be standing in" mode anymore. What gets verified must always
+ * be a named, traceable commit, never an anonymous pile of whatever's on
+ * disk (including, critically, live/ itself — these commands cannot
+ * point at live/ directly; deploy is the only path onto it). This also
+ * means none of these commands have any remaining use for cwd: not to
+ * find the integration's id (that's --id now), and not to resolve --env
+ * (that's the resolved branch's own root now, see below).
  *
  * integra only ever runs on the server — there is no developer-machine
  * install to speak of. A developer pushes a branch, then SSHes into the
  * same server integra already lives on and runs, e.g.,
- * `integra test --branch my-patch`, to verify their own pushed work before
- * asking an operator (or themselves) to `integra-manager deploy` it. This
- * is the normal, expected, day-to-day use of --branch — not an edge case
- * and not something done on behalf of someone else's work.
+ * `integra test --id my-sn-jira --branch my-patch`, to verify their own
+ * pushed work before asking an operator (or themselves) to
+ * `integra-manager deploy` it. This is the normal, expected, day-to-day
+ * use of these commands — not an edge case.
  *
  * The integration's registry entry and .integrations/ tree live at a
  * single, fixed location — integra's "home" (see @int3gra/manager's
  * home.js), a literal constant (/opt/integra), never relocated. It must
  * already exist on this host — `integra setup` (run by hand, as root) is
- * the one and only thing that creates it. --branch reads that home
- * directly; it no longer searches for it by walking upward from cwd.
- * This means the command can be run from any directory at all — there is
- * no requirement to `cd` anywhere first.
+ * the one and only thing that creates it.
  *
- * With --branch, this module:
+ * This module:
  *
- *   1. Enforces that --env is also present (except when explicitly told
- *      this command never uses real credentials, i.e. `test`) — refusing
- *      before doing anything else, so a patch branch can never run
- *      against production credentials via a forgotten default .env.
- *   2. Reads the current directory's integra.json to learn the
- *      integration's own id (the same file every command already reads
- *      first).
- *   3. Resolves integra's fixed home and delegates to @int3gra/manager's
+ *   1. Requires --id and --branch — refuses immediately, before doing
+ *      anything else, if either is missing.
+ *   2. Resolves integra's fixed home and delegates to @int3gra/manager's
  *      resolveArchive() to get an ephemeral, content-addressed copy of
- *      that branch.
+ *      that branch for that id.
+ *   3. Resolves --env (if given) against that archive's own root — never
+ *      against cwd. --env must be a plain relative filename: no leading
+ *      "/", no ".." segment. The env file, like everything else being
+ *      verified, must already be committed on the branch — there is no
+ *      other way it could exist inside the archive at all (see the
+ *      "Env files: committed, not personal" section of the root README).
  *   4. Returns the directory the calling command should actually operate
  *      against, plus the banner text it should print before doing
  *      anything else.
  */
 
 import { existsSync } from "fs";
-import { resolve }    from "path";
+import { resolve, isAbsolute, sep } from "path";
 
 /**
- * @param {object} flags          parsed CLI flags (from parseArgs)
- * @param {string} cwd            the directory the command was invoked from
+ * @param {object} flags          parsed CLI flags (from parseArgs) — must include id and branch
  * @param {object} [options]
  * @param {boolean} [options.envRequired]  whether --env must accompany --branch (default true)
  * @returns {Promise<{ targetDir: string, banner: string[], envFile: string|null }>}
  */
-export async function resolveBranchTarget(flags, cwd, { envRequired = true } = {}) {
+export async function resolveBranchTarget(flags, { envRequired = true } = {}) {
+  if (!flags.id) {
+    throw new Error(
+      `Usage requires --id <integration-id>.\n` +
+      `There is no implicit "current integration" anymore — every run must ` +
+      `name the integration explicitly.`
+    );
+  }
+
   if (!flags.branch) {
-    // No --branch: operate on cwd exactly as before. envFile resolution is
-    // left to the caller, which already has its own default-.env logic.
-    return { targetDir: cwd, banner: [], envFile: null };
+    throw new Error(
+      `Usage requires --branch <name>.\n` +
+      `These commands can no longer operate on live/ directly, or on an ` +
+      `arbitrary local checkout — only on a branch already pushed into ` +
+      `live/. Push your work, then pass --branch <name>.`
+    );
   }
 
   if (envRequired && !flags.env) {
@@ -66,32 +80,31 @@ export async function resolveBranchTarget(flags, cwd, { envRequired = true } = {
     );
   }
 
-  const { readManifest } = await import("@int3gra/engine");
-  const manifest = await readManifest(cwd);
-
-  if (!manifest.id) {
-    throw new Error(
-      `Could not determine this integration's id from integra.json in ${cwd}.\n` +
-      `--branch requires a valid integra.json with an "id" field.`
-    );
-  }
-
   const { resolveIntegraHome, assertIntegraHomeExists } = await import("@int3gra/manager/home");
   assertIntegraHomeExists();
   const home = resolveIntegraHome();
 
   const doResolveArchive = await resolveArchiveImpl();
-  const { sha, path: archivePath } = await doResolveArchive(manifest.id, flags.branch, home);
+  const { sha, path: archivePath } = await doResolveArchive(flags.id, flags.branch, home);
 
   const banner = [
-    `Using branch "${flags.branch}" (${sha.slice(0, 12)}) — NOT the live code.`,
+    `Using branch "${flags.branch}" (${sha.slice(0, 12)}) for "${flags.id}".`,
   ];
 
   let envFile = null;
   if (flags.env) {
-    envFile = resolve(cwd, flags.env);
+    if (isAbsolute(flags.env) || flags.env.split(sep).includes("..")) {
+      throw new Error(
+        `--env must be a plain relative filename (e.g. ".env.dev") — no ` +
+        `leading "/" and no ".." segment. Got: ${flags.env}`
+      );
+    }
+    envFile = resolve(archivePath, flags.env);
     if (!existsSync(envFile)) {
-      throw new Error(`Env file not found: ${envFile}`);
+      throw new Error(
+        `Env file not found: ${flags.env} (looked in the "${flags.branch}" ` +
+        `branch's own root). It must be committed there, like any other file.`
+      );
     }
     banner.push(`Using env: ${flags.env}`);
   }

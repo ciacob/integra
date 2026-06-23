@@ -23,14 +23,22 @@ int3gra — integration engine CLI
 Commands:
   integra setup                     One-off host provisioning. Run once, as root (sudo).
                                      Creates /opt/integra, integra's fixed home.
-  integra init <name>              Scaffold a new integration environment
-  integra validate                 Validate components and processes (no execution)
-  integra run <process-id>         Execute a process in the current directory
-  integra run <process-id> --env <file>  Run with a specific env file (default: .env)
-  integra test                     Mock-test the integration using fixture files
-  integra ping                     Fire the no-op connection and report reachability
-  integra ping --con <id>[,<id>]   Ping specific connection(s) — comma-separated
-  integra ping --env <file>        Ping with a specific env file
+  integra init <path>               Scaffold a new integration; <path>'s last segment becomes its id
+  integra validate --id <id> --branch <name>
+                                     Validate components and processes for a pushed branch (no execution)
+  integra run <process-id> --id <id> --branch <name> [--env <file>]
+                                     Execute a process for real, against a pushed branch (default env: .env)
+  integra test --id <id> --branch <name>
+                                     Mock-test a pushed branch using fixture files (no real calls)
+  integra ping --id <id> --branch <name> [--env <file>]
+                                     Fire the no-op connection and report reachability
+  integra ping --id <id> --branch <name> --con <id>[,<id>]
+                                     Ping specific connection(s) — comma-separated
+
+--id and --branch are mandatory on validate/run/test/ping — there is no
+mode that operates on live/ directly, or on whatever's locally checked
+out. Push a branch into live/ first, then verify it. See the root
+README's "Git-backed deploy" section for the full model.
 
 Options:
   --help, -h                       Show this help message

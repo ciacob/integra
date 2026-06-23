@@ -2,17 +2,20 @@
 /**
  * @int3gra/cli - commands/test.js
  *
- * Mock-test runner for integra integrations.
- * No real HTTP calls are ever made — all outbound connections are intercepted
- * and answered with fixture files, all inbound webhooks are fired from fixtures.
+ * Mock-test runner for a branch already pushed into an integration's
+ * live/ repository. No real HTTP calls are ever made — all outbound
+ * connections are intercepted and answered with fixture files, all
+ * inbound webhooks are fired from fixtures.
  *
  * Usage:
- *   integra test
+ *   integra test --id <integration-id> --branch <name>
  *
- * Note: --env is intentionally NOT supported here. integra test never consults
- * credentials or real endpoints — everything is mocked. If your process reads
- * env vars for non-credential purposes (e.g. project keys used in mapping),
- * those should be represented in your fixture data instead.
+ * --id and --branch are both mandatory — see branchTarget.js. --env is
+ * NOT consulted here at all, even if passed — test never reads real
+ * credentials or hits real endpoints, everything is mocked. If your
+ * process reads env vars for non-credential purposes (e.g. project keys
+ * used in mapping), those should be represented in your fixture data
+ * instead.
  *
  * Lifecycle detection:
  *   listener  → start real Fastify, fire each webhooks/ fixture at it, collect results
@@ -251,12 +254,11 @@ async function runListenerTest(cwd) {
 
 export async function test(argv) {
   const { flags } = parseArgs(argv);
-  const cwd       = process.cwd();
 
   // test never uses real credentials, so --branch does NOT require --env
   // here — the one deliberate exception to the rule the other three
   // commands enforce.
-  const { targetDir, banner } = await resolveBranchTarget(flags, cwd, { envRequired: false });
+  const { targetDir, banner } = await resolveBranchTarget(flags, { envRequired: false });
 
   const { readManifest } = await import("@int3gra/engine");
   const manifest  = await readManifest(targetDir);

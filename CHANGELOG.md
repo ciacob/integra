@@ -1,5 +1,59 @@
 # Changelog
 
+## @int3gra/cli — `--id` and `--branch` are now mandatory on `run`/`validate`/`ping`/`test`
+
+**What changed**
+
+`run`, `validate`, `ping`, and `test` now require both `--id <integration-id>`
+and `--branch <name>`. There is no longer a mode that operates on `live/`
+directly, or on whatever happens to be checked out in the current
+directory — every invocation must name a specific integration and a
+specific, already-pushed branch.
+
+`--env <file>` (where applicable) now resolves against that branch's own
+root — the same ephemeral archive `--id`/`--branch` resolve to — rather
+than against the directory the command was invoked from. `<file>` must be
+a plain relative filename: no leading `/`, no `..` segment. The env file
+must be **committed on the branch**, exactly like `.env` itself (see the
+`.env`-must-be-committed entry above) — there is no other way it could
+exist in the resolved archive at all.
+
+`integra setup`'s and `integra init`'s own behaviour is unaffected — this
+only touches the four commands that previously had a "no `--branch`,
+operate on cwd" fallback.
+
+**Why**
+
+What gets verified should always be a named, traceable commit, never an
+anonymous pile of whatever's on disk. Before this change, running these
+commands without `--branch` silently meant "whatever code happens to be
+sitting in this directory right now" — which, for a developer SSHed into
+the server, was usually either `live/` itself (no audit trail of what was
+actually tested) or their own local, possibly-uncommitted clone (no
+audit trail, and not guaranteed to exist anywhere ever again). Requiring
+`--branch` everywhere closes that gap: every verification is now
+traceable to a specific SHA, the same standard `deploy`/`undeploy` already
+held the *promotion* step to.
+
+`--id` is the natural completion of the same idea — once `--branch` no
+longer lets a command infer "the current integration" from a local
+`integra.json`, there is nothing left for that inference to be useful for.
+Naming the integration explicitly also removes a whole class of
+wrong-directory, cryptic-error mistakes (a stale shell, a typo'd `cd`, a
+copy-pasted command from a different terminal tab).
+
+**What you need to do**
+
+Add `--id <integration-id> --branch <name>` to every existing script,
+alias, or muscle-memory invocation of `run`/`validate`/`ping`/`test`.
+There is no equivalent for the removed "operate on `live/` directly"
+mode — push your work as a branch first, the same way `--branch` already
+worked. If you relied on `--env <file>` resolving relative to your own
+working directory rather than the branch's root, move or commit that
+file onto the branch instead.
+
+---
+
 ## @int3gra/manager — `.env` must be committed; PM2-managed processes always use `.env`
 
 **What changed**

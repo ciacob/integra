@@ -2,10 +2,11 @@
 /**
  * packages/cli/test/branchTarget.test.js
  *
- * resolveBranchTarget reads integra's fixed home (/opt/integra in
- * production — see @int3gra/manager's home.js) instead of walking upward
- * from cwd looking for registry.d/. The home is a literal constant with
- * no override mechanism by design, so these tests mock
+ * resolveBranchTarget requires --id and --branch — there is no longer a
+ * "no --branch, operate on cwd" mode, and no cwd parameter at all; the
+ * function takes only flags. Reads integra's fixed home (/opt/integra in
+ * production — see @int3gra/manager's home.js). The home is a literal
+ * constant with no override mechanism by design, so these tests mock
  * @int3gra/manager/home's resolveIntegraHome/assertIntegraHomeExists to
  * point at a per-test tmpdir, rather than touching the real /opt/integra.
  * Everything else here (git push into a real repo, archive resolution,
@@ -29,7 +30,7 @@ jest.unstable_mockModule("@int3gra/manager/home", () => ({
 const { resolveBranchTarget } = await import("../src/branchTarget.js");
 
 describe("resolveBranchTarget", () => {
-  let home, liveDir, devCwd, xdgRoot;
+  let home, liveDir, xdgRoot;
   let priorSweepDisableFlag;
 
   function sh(cmd, dir) {
@@ -59,10 +60,6 @@ describe("resolveBranchTarget", () => {
 
     liveDir   = join(home, ".integrations", "my-int", "live");
 
-    // devCwd simulates "wherever the command happens to be invoked from" —
-    // deliberately NOT inside home, to prove --branch no longer cares.
-    devCwd = await mkdtemp(join(tmpdir(), "integra-devcwd-"));
-
     // liveDir IS the repository — no separate bare remote. Developer
     // clones are created directly from it and push branches back into it.
     sh(`mkdir -p ${liveDir}`, home);
@@ -79,22 +76,10 @@ describe("resolveBranchTarget", () => {
       join(home, "registry.d", "my-int.registry.json"),
       JSON.stringify({ id: "my-int", path: "./.integrations/my-int/live", enabled: true })
     );
-
-    // The cwd the command is invoked from needs integra.json present too —
-    // resolveBranchTarget reads cwd's own integra.json to learn the id.
-    // We copy live/'s manifest in: in real use, this directory IS live/
-    // (the developer cd's there), but the point of this suite is to also
-    // prove the home lookup no longer depends on cwd's *location* — only
-    // on cwd containing a valid integra.json.
-    await writeFile(join(devCwd, "integra.json"), JSON.stringify({ id: "my-int", entry: "live-version" }));
   });
 
   afterEach(async () => {
-    // xdgRoot contains home/.integrations/.../live AND any dev clones —
-    // removing it covers both, even if a test failed before its own
-    // per-call cleanup ran.
     await rm(xdgRoot, { recursive: true, force: true });
-    await rm(devCwd, { recursive: true, force: true });
   });
 
   async function pushBranch(branchName, entryValue) {
@@ -110,56 +95,54 @@ describe("resolveBranchTarget", () => {
     await rm(devClone, { recursive: true, force: true });
   }
 
-  // ── No --branch: complete no-op ───────────────────────────────────────────
+  // ── --id and --branch are both mandatory — no fallback mode ───────────────
 
-  test("with no --branch, returns cwd unchanged and an empty banner", async () => {
-    const result = await resolveBranchTarget({}, devCwd);
-    expect(result.targetDir).toBe(devCwd);
-    expect(result.banner).toEqual([]);
-    expect(result.envFile).toBeNull();
+  test("throws when --id is missing", async () => {
+    await expect(resolveBranchTarget({ branch: "x" })).rejects.toThrow(/--id/i);
   });
 
-  test("with no --branch, ignores --env entirely (left to the caller)", async () => {
-    const result = await resolveBranchTarget({ env: ".env.dev" }, devCwd);
-    expect(result.envFile).toBeNull();
+  test("throws when --branch is missing", async () => {
+    await expect(resolveBranchTarget({ id: "my-int" })).rejects.toThrow(/--branch/i);
   });
 
   // ── --branch requires --env (except when envRequired: false) ─────────────
 
   test("--branch without --env throws by default", async () => {
-    await expect(resolveBranchTarget({ branch: "x" }, devCwd)).rejects.toThrow(/requires --env/i);
+    await expect(resolveBranchTarget({ id: "my-int", branch: "x" })).rejects.toThrow(/requires --env/i);
   });
 
   test("--branch without --env does NOT throw when envRequired: false", async () => {
     await pushBranch("feature-noenv", "patched");
-    const result = await resolveBranchTarget({ branch: "feature-noenv" }, devCwd, { envRequired: false });
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-noenv" }, { envRequired: false });
     expect(result.envFile).toBeNull();
-    expect(result.targetDir).not.toBe(devCwd);
+    expect(result.targetDir).toBeTruthy();
   });
 
-  // ── cwd no longer needs to be inside (or beneath) home at all ────────────
+  // ── Genuinely location-independent — no cwd involved at all anymore ──────
 
-  test("works from an arbitrary cwd unrelated to integra's home — no upward search, no cd required", async () => {
+  test("resolves correctly with no relationship whatsoever to any particular directory", async () => {
+    // There is no cwd parameter at all anymore — flags alone (id, branch,
+    // env) are enough. This is a stronger property than the old "doesn't
+    // search upward from cwd" guarantee: there is no cwd input to this
+    // function in the first place.
     await pushBranch("feature-anywhere", "patched-anywhere");
-    await writeFile(join(devCwd, ".env"), "");
+    await writeFile(join(home, ".integrations", "my-int", "live", ".env"), ""); // irrelevant — env comes from the archive, not live/
 
-    // devCwd is a plain temp dir with no relation to home's location at all.
-    const result = await resolveBranchTarget({ branch: "feature-anywhere", env: ".env" }, devCwd);
+    const archiveEnvPath = join(home, ".integrations", "my-int", "tests");
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-anywhere" }, { envRequired: false });
 
-    expect(result.targetDir).not.toBe(devCwd);
+    expect(result.targetDir).not.toBe(liveDir);
     const manifest = JSON.parse(await readFile(join(result.targetDir, "integra.json"), "utf-8"));
     expect(manifest.entry).toBe("patched-anywhere");
   });
 
   // ── Successful resolution ──────────────────────────────────────────────────
 
-  test("with --branch and --env, returns the archived directory, not live/", async () => {
+  test("with --id and --branch, returns the archived directory, not live/", async () => {
     await pushBranch("feature-a", "patched-a");
-    await writeFile(join(devCwd, ".env"), "");
 
-    const result = await resolveBranchTarget({ branch: "feature-a", env: ".env" }, devCwd);
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-a" }, { envRequired: false });
 
-    expect(result.targetDir).not.toBe(devCwd);
     expect(result.targetDir).not.toBe(liveDir);
     const manifest = JSON.parse(await readFile(join(result.targetDir, "integra.json"), "utf-8"));
     expect(manifest.entry).toBe("patched-a");
@@ -167,45 +150,77 @@ describe("resolveBranchTarget", () => {
 
   test("archived directory lives under home's .integrations/<id>/tests/", async () => {
     await pushBranch("feature-loc", "patched-loc");
-    await writeFile(join(devCwd, ".env"), "");
 
-    const result = await resolveBranchTarget({ branch: "feature-loc", env: ".env" }, devCwd);
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-loc" }, { envRequired: false });
     expect(result.targetDir).toContain(join(home, ".integrations", "my-int", "tests"));
   });
 
-  test("banner mentions the branch name and that it is not live", async () => {
+  test("banner mentions the branch name and the integration id", async () => {
     await pushBranch("feature-b", "patched-b");
-    await writeFile(join(devCwd, ".env"), "");
 
-    const result = await resolveBranchTarget({ branch: "feature-b", env: ".env" }, devCwd);
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-b" }, { envRequired: false });
     expect(result.banner.join(" ")).toMatch(/feature-b/);
-    expect(result.banner.join(" ")).toMatch(/not the live code/i);
+    expect(result.banner.join(" ")).toMatch(/my-int/);
+  });
+
+  // ── --env: relative-only, resolved against the archive's own root ─────────
+  // .env must be committed on the branch itself — there is no other
+  // mechanism that gets it into the archive at all (git archive exports
+  // straight from the commit tree).
+
+  test("--env is resolved against the archive's own root, not any cwd", async () => {
+    const devClone = join(xdgRoot, "dev-clone-feature-env");
+    sh(`git clone -q ${liveDir} ${devClone}`, xdgRoot);
+    sh("git config user.email test@test.com", devClone);
+    sh("git config user.name test", devClone);
+    sh("git checkout -q -b feature-env", devClone);
+    await writeFile(join(devClone, "integra.json"), JSON.stringify({ id: "my-int", entry: "patched-env" }));
+    await writeFile(join(devClone, ".env.dev"), "SN_USER=realuser\n"); // committed, like any other file
+    sh("git add -A", devClone);
+    sh('git commit -q -m "on feature-env"', devClone);
+    sh("git push -q origin feature-env", devClone);
+    await rm(devClone, { recursive: true, force: true });
+
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-env", env: ".env.dev" });
+    expect(result.envFile).toBe(join(result.targetDir, ".env.dev"));
+    const content = await readFile(result.envFile, "utf-8");
+    expect(content).toContain("SN_USER=realuser");
   });
 
   test("banner mentions the env file used", async () => {
     await pushBranch("feature-c", "patched-c");
-    await writeFile(join(devCwd, ".env.dev"), "");
+    // .env must exist in the archive — push it committed, same as any file.
+    const devClone = join(xdgRoot, "dev-clone-feature-c2");
+    sh(`git clone -q ${liveDir} ${devClone}`, xdgRoot);
+    sh("git config user.email test@test.com", devClone);
+    sh("git config user.name test", devClone);
+    sh("git fetch -q origin feature-c", devClone);
+    sh("git checkout -q feature-c", devClone);
+    await writeFile(join(devClone, ".env.dev"), "");
+    sh("git add -A", devClone);
+    sh('git commit -q -m "add env"', devClone);
+    sh("git push -q origin feature-c", devClone);
+    await rm(devClone, { recursive: true, force: true });
 
-    const result = await resolveBranchTarget({ branch: "feature-c", env: ".env.dev" }, devCwd);
+    const result = await resolveBranchTarget({ id: "my-int", branch: "feature-c", env: ".env.dev" });
     expect(result.banner.join(" ")).toContain(".env.dev");
   });
 
-  test("throws when the given --env file doesn't exist", async () => {
+  test("throws when the given --env file doesn't exist in the archive", async () => {
     await pushBranch("feature-d", "patched-d");
-    await expect(resolveBranchTarget({ branch: "feature-d", env: ".env.missing" }, devCwd))
+    await expect(resolveBranchTarget({ id: "my-int", branch: "feature-d", env: ".env.missing" }))
       .rejects.toThrow(/env file not found/i);
   });
 
-  test("throws when integra.json in cwd has no id", async () => {
-    const badCwd = await mkdtemp(join(tmpdir(), "integra-no-id-"));
-    try {
-      await writeFile(join(badCwd, "integra.json"), JSON.stringify({ entry: "x" })); // no id
-      await writeFile(join(badCwd, ".env"), "");
+  test("rejects --env with a leading slash", async () => {
+    await pushBranch("feature-abs", "patched-abs");
+    await expect(resolveBranchTarget({ id: "my-int", branch: "feature-abs", env: "/etc/passwd" }))
+      .rejects.toThrow(/relative filename/i);
+  });
 
-      await expect(resolveBranchTarget({ branch: "x", env: ".env" }, badCwd))
-        .rejects.toThrow(/could not determine.*id/i);
-    } finally {
-      await rm(badCwd, { recursive: true, force: true });
-    }
+  test("rejects --env containing a '..' segment", async () => {
+    await pushBranch("feature-traverse", "patched-traverse");
+    await expect(resolveBranchTarget({ id: "my-int", branch: "feature-traverse", env: "../../../etc/passwd" }))
+      .rejects.toThrow(/relative filename/i);
   });
 });

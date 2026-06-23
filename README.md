@@ -215,18 +215,20 @@ git checkout -b my-patch
 # Author your components in connections/, maps/, processes/, resolvers/
 # Set the entry process in integra.json
 
-integra validate                  # structural checks — no real systems touched
-integra test                      # mock-tested against fixtures — no real systems touched
-integra run my-process-id         # a real run, against your own .env
-
 git add -A && git commit -m "..."
 git push origin my-patch          # pushes the branch directly into live/
+
+integra validate --id my-sn-jira --branch my-patch                  # structural checks — no real systems touched
+integra test     --id my-sn-jira --branch my-patch                  # mock-tested against fixtures — no real systems touched
+integra run      my-process-id --id my-sn-jira --branch my-patch --env .env.dev  # a real run, against your committed env
 ```
 
 Pushing a branch does not affect the running integration by itself — it
 only makes that branch exist inside `live/`. Promoting it to production is
-a separate, explicit step; see "Git-backed deploy" below for that, and for
-how to try out a pushed branch (`--branch`) before asking for a deploy.
+a separate, explicit step; see "Git-backed deploy" below for that.
+`validate`/`test`/`run`/`ping` all require `--id` and `--branch` — there
+is no mode that operates on `live/` directly, or on whatever's locally
+checked out. Push first, then verify.
 
 ---
 
@@ -283,8 +285,7 @@ URL not in map → immediate error naming the URL. Fixture file listed but missi
 ### Running
 
 ```bash
-# From the integration directory
-integra test
+integra test --id my-sn-jira --branch my-patch
 ```
 
 For listener integrations, `integra test` starts the real Fastify server, fires every webhook fixture at it in sequence, and reports the HTTP response for each. For outbound integrations, it runs the entry process with all outbound calls intercepted by fixture files.
@@ -309,7 +310,7 @@ committed file to use instead of `.env`, resolved relative to the current
 directory:
 
 ```bash
-integra run my-process-id --env .env.dev
+integra run my-process-id --id my-sn-jira --branch my-patch --env .env.dev
 ```
 
 `integra-manager start` has no `--env` flag — a PM2-managed (scheduled or
@@ -338,10 +339,10 @@ Verifies that an integration's remote systems are reachable with the configured 
 You provide the check. Create `connections/no-op.json` — a connection component whose request is safe to fire at any time (read-only, no side effects). `integra ping` loads it, resolves auth and endpoint from your env, fires the request, and reports the HTTP status.
 
 ```bash
-integra ping                                   # fires no-op
-integra ping --con sn-get-incident             # fires a specific connection
-integra ping --con sn-get-incident,jira-health # fires multiple, in sequence
-integra ping --env .env.dev                    # with a specific env file
+integra ping --id my-sn-jira --branch my-patch                                   # fires no-op
+integra ping --id my-sn-jira --branch my-patch --con sn-get-incident             # fires a specific connection
+integra ping --id my-sn-jira --branch my-patch --con sn-get-incident,jira-health # fires multiple, in sequence
+integra ping --id my-sn-jira --branch my-patch --env .env.dev                    # with a specific env file
 ```
 
 Example output for a multi-connection ping:
@@ -533,16 +534,19 @@ rollback is correct regardless of what else has touched the repository.
 `deploy-history` is built entirely from these same tags — no separate
 bookkeeping file.
 
-### Trying a branch without deploying — `--branch`
+### `--id` and `--branch` are mandatory — `run`/`validate`/`ping`/`test`
 
-`run`, `validate`, `ping`, and `test` all accept `--branch <name>`:
+`run`, `validate`, `ping`, and `test` all require `--id <integration-id>`
+and `--branch <name>`. There is no mode that operates on `live/` directly,
+or on whatever happens to be checked out locally — what gets verified
+must always be a named, traceable commit, never an anonymous pile of
+whatever's on disk:
 
 ```bash
-integra test                                          # live/, mocked, as always
-integra test     --branch my-patch                    # that branch, mocked — no --env needed
-integra validate --branch my-patch                    # structural checks only — no --env needed
-integra run      <process-id> --branch my-patch --env .env.dev
-integra ping      --branch my-patch --env .env.dev
+integra test     --id my-sn-jira --branch my-patch                    # mocked — no --env needed
+integra validate --id my-sn-jira --branch my-patch                    # structural checks only — no --env needed
+integra run      <process-id> --id my-sn-jira --branch my-patch --env .env.dev
+integra ping     --id my-sn-jira --branch my-patch --env .env.dev
 ```
 
 **`--branch` requires `--env`** on `run` and `ping`, which read real
@@ -554,23 +558,24 @@ validation. Requiring `--env` where it does nothing would just be
 ceremony. Where it *is* required, it's deliberate: without it, the obvious
 failure mode is testing a patch branch and silently falling back to
 default `.env` — which, for a long-lived integration, is very plausibly
-production credentials.
+production credentials. The named file must already be **committed** on
+the branch — same as `.env` itself, there is no other mechanism that gets
+it there.
 
-**Push your branch into `live/` before you `--branch`.** These commands
-always read the branch as it exists in `live/`'s own history — there is no
-fetch step, so a branch that only exists in your own uncommitted clone
-isn't visible to them yet.
+**Push your branch into `live/` first.** These commands always read the
+branch as it exists in `live/`'s own history — there is no fetch step, so
+a branch that only exists in your own uncommitted clone isn't visible to
+them yet.
 
-**This is the normal way to try out your own work.** integra only ever
+**This is the normal way to verify your own work.** integra only ever
 runs on the server — there's no separate developer-machine install. So the
 usual flow is: push your branch into `live/`, then from the same server,
-run `integra test --branch my-patch` (or `run`/`validate`/`ping`) to verify
-it before asking for `integra-manager deploy`. **`--branch` can be run from
-any directory** — there is no need to `cd` into the integration's `live/`
-tree, or anywhere else in particular, first. The integration's registry
-entry and `.integrations/` tree are found by reading integra's fixed home
-directory (see "Integra home" below), not by searching upward from wherever
-the command happens to be invoked.
+run `integra test --id my-sn-jira --branch my-patch` (or `run`/`validate`/`ping`)
+to verify it before asking for `integra-manager deploy`. These commands
+can be run from any directory at all — there is no need to `cd` anywhere
+first. `--id` says which integration; the integration's registry entry
+and `.integrations/` tree are then found by reading integra's fixed home
+directory (see "Integra home" below).
 
 **Listener integrations are the one case worth a second look.** `integra
 run --branch X` against a listener starts a real, resident Fastify server
@@ -593,9 +598,13 @@ See `example-sn-jira/` for a full working example that syncs open incidents from
 ```bash
 cd example-sn-jira
 cp .env.example .env
-# Fill in your credentials
-integra validate
-integra run sync-incident-sn-to-jira
+# Fill in your credentials, then commit — see "Env files" above
+git checkout -b try-it
+git add -A && git commit -m "add credentials"
+git push origin try-it
+
+integra validate --id example-sn-jira --branch try-it
+integra run sync-incident-sn-to-jira --id example-sn-jira --branch try-it --env .env
 ```
 
 ---

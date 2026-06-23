@@ -86,9 +86,13 @@ Adjust `schedule` to any valid cron expression. Adjust `max_ttl` to however many
 ```bash
 cd example-sn-jira
 cp .env.example .env
-# fill in .env
-integra validate
-integra run sync-incident-sn-to-jira
+# fill in .env, then commit — see the root README's "Env files" section
+git checkout -b try-it
+git add -A && git commit -m "add credentials"
+git push origin try-it
+
+integra validate --id example-sn-jira --branch try-it
+integra run sync-incident-sn-to-jira --id example-sn-jira --branch try-it --env .env
 ```
 
 The process runs once and exits, logging a structured summary at the end:

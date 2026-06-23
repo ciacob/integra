@@ -21,21 +21,22 @@ fails immediately, with a clear message, if it's missing.
 ## Commands
 
 ```bash
-integra setup                    # One-off host provisioning. Run once, as root.
-integra init <path>              # Scaffold a new integration; <path>'s last segment becomes its id
-integra validate                 # Validate integra.json and all component files
-integra run <process-id>         # Execute a process locally
-integra run <process-id> --env <file>  # Run with a specific env file
-integra test                     # Mock-test using fixture files (no real calls)
-integra ping                     # Check connectivity via the no-op connection
-integra ping --con <id>[,<id>]   # Ping specific connection(s)
-integra ping --env <file>        # Ping with a specific env file
+integra setup                                                # One-off host provisioning. Run once, as root.
+integra init <path>                                          # Scaffold a new integration; <path>'s last segment becomes its id
+integra validate --id <id> --branch <name>                   # Validate a pushed branch's integra.json and component files
+integra run <process-id> --id <id> --branch <name>           # Execute a process for real, against a pushed branch
+integra run <process-id> --id <id> --branch <name> --env <file>  # Run with a specific committed env file
+integra test --id <id> --branch <name>                       # Mock-test a pushed branch using fixture files (no real calls)
+integra ping --id <id> --branch <name>                       # Check connectivity via the no-op connection
+integra ping --id <id> --branch <name> --con <id>[,<id>]      # Ping specific connection(s)
+integra ping --id <id> --branch <name> --env <file>           # Ping with a specific committed env file
 ```
 
-`run`, `validate`, `ping`, and `test` also accept `--branch <name>`, to try
-out a branch already pushed into the integration's `live/` repository
-without touching the live code or running a deploy. See the root README's
-"Git-backed deploy" section for the full model.
+`--id` and `--branch` are mandatory on `run`, `validate`, `ping`, and
+`test` — there is no mode that operates on `live/` directly, or on
+whatever happens to be checked out locally. Push your work into the
+integration's `live/` repository first, then verify the pushed branch.
+See the root README's "Git-backed deploy" section for the full model.
 
 ### `integra init`
 
@@ -54,11 +55,11 @@ generated guide with clone and workflow instructions:
 
 ### `integra test`
 
-Runs the integration end-to-end against fixture files — no real HTTP calls. Place response fixtures in `test/fixtures/responses/` and webhook fixtures in `test/fixtures/webhooks/`. Use `test/fixtures/.fixture-map.json` to map outbound URLs to fixtures when you have more than one response file.
+Runs a pushed branch end-to-end against fixture files — no real HTTP calls. Requires `--id` and `--branch`. Place response fixtures in `test/fixtures/responses/` and webhook fixtures in `test/fixtures/webhooks/`, committed on the branch like any other file. Use `test/fixtures/.fixture-map.json` to map outbound URLs to fixtures when you have more than one response file.
 
 ### `integra ping`
 
-Fires `connections/no-op.json` (or the connections named via `--con`) and reports reachability. The implementor provides a safe, side-effect-free connection to use as the connectivity check.
+Requires `--id` and `--branch`. Fires `connections/no-op.json` (or the connections named via `--con`) from the resolved branch and reports reachability. The implementor provides a safe, side-effect-free connection to use as the connectivity check.
 
 ## Links
 
