@@ -94,7 +94,7 @@ async function pm2NamesFor(entry, cwd) {
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
-export async function startAll(cwd = process.cwd(), envFile = null) {
+export async function startAll(cwd = process.cwd()) {
   const integrations = await loadRegistry(cwd);
   const enabled      = integrations.filter(i => i.enabled !== false);
 
@@ -106,10 +106,6 @@ export async function startAll(cwd = process.cwd(), envFile = null) {
   await pm2Connect();
 
   for (const integration of enabled) {
-    // Apply --env override at start time — stored transiently on the entry object
-    // so buildIntegrationDescriptor picks it up without persisting to registry.json
-    if (envFile) integration.env_file = envFile;
-
     const lifecycle = await getLifecycle(integration, cwd);
 
     try {
@@ -198,17 +194,11 @@ export async function statusAll(cwd = process.cwd()) {
     lifecycleMap[integration.id] = await getLifecycle(integration, cwd);
   }
 
-  // Build env_file map from registry entries
-  const envFileMap = Object.fromEntries(
-    integrations.map(i => [i.id, i.env_file ?? ".env"])
-  );
-
   const rows = list
     .filter(p => ids.has(p.name))
     .map(p => ({
       id:        p.name,
       lifecycle: lifecycleMap[p.name] ?? "-",
-      env:       envFileMap[p.name]   ?? ".env",
       status:    p.pm2_env.status,
       pid:       p.pid ?? "-",
       restarts:  p.pm2_env.restart_time,

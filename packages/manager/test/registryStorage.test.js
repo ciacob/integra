@@ -91,8 +91,14 @@ describe("registryStorage", () => {
   test("validateEntry accepts all documented optional fields", async () => {
     await expect(validateEntry({
       id: "a", path: "./a", enabled: true, description: "x",
-      schedule: "*/5 * * * *", max_ttl: 60, env_file: ".env.dev",
+      schedule: "*/5 * * * *", max_ttl: 60,
     })).resolves.toBeUndefined();
+  });
+
+  test("validateEntry rejects env_file — PM2-managed processes always use .env, no override", async () => {
+    await expect(validateEntry({
+      id: "a", path: "./a", env_file: ".env.dev",
+    })).rejects.toThrow();
   });
 
   // ── publishEntry ──────────────────────────────────────────────────────────

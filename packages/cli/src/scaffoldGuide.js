@@ -63,7 +63,7 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "",
     "```bash",
     "cd " + id,
-    "cp .env.example .env          # fill in your own credentials, never commit this file",
+    "cp .env.example .env          # fill in the integration's credentials — commit this, like any other file",
     "git checkout -b my-patch",
     "# ...edit connections/, maps/, processes/, resolvers/...",
     "integra validate",

@@ -71,10 +71,11 @@ export function buildIntegrationDescriptor(integration, registryDir, lifecycle =
   const cwd       = resolve(registryDir, integration.path);
   const scheduled = lifecycle === "scheduled";
   const listener  = lifecycle === "listener";
-  // env_file: use integration.env_file if set, otherwise default to .env
-  const envFile   = integration.env_file
-    ? resolve(registryDir, integration.env_file)
-    : join(cwd, ".env");
+  // PM2-managed processes always use .env — fixed name, no override. To run
+  // against different credentials: rename the file you want active to .env
+  // (e.g. `cp .env.dev .env`) before `integra-manager start`. To run two
+  // credential sets simultaneously, `duplicate` the integration instead.
+  const envFile   = join(cwd, ".env");
 
   return {
     name:                      integration.id,

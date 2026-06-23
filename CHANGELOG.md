@@ -1,5 +1,59 @@
 # Changelog
 
+## @int3gra/manager — `.env` must be committed; PM2-managed processes always use `.env`
+
+**What changed**
+
+`.env` holds an integration's own credentials, not a personal developer
+secret, and it must now be committed — the same as any other file in
+`live/`. This corrects earlier documentation (root README, the generated
+scaffold guide) that said the opposite. There was never a mechanism that
+got `.env` onto the host any other way: nothing creates, copies, or syncs
+it outside of git. Committing it and pushing it like any other change is
+not a new allowance — it is, and always was, the only way it actually
+gets there.
+
+The registry entry's `env_file` field has been removed entirely (it's no
+longer accepted by `registry-entry.schema.json` — an entry containing it
+now fails validation outright), and `integra-manager start` no longer
+takes an `--env` flag. A PM2-managed (scheduled or listener) integration
+always runs on its own `.env`, deliberately, with no override. `status`'s
+`env` column is gone too — it could only ever show one value now, so it
+no longer carries information.
+
+`integra run`, `test`, `validate`, and `ping` are unaffected — `--env`
+still works there exactly as before, for ad-hoc, per-invocation use.
+
+**Why**
+
+`env_file` as a persisted, per-integration setting was solving a problem
+that doesn't need solving this way: if a long-running process genuinely
+needs different default credentials, that's a different integration
+(`duplicate` it), not a configurable filename on the same one. Collapsing
+this to "PM2-managed processes always use `.env`" removes a knob that
+added complexity without a real use case behind it, and a `status` column
+that could never say anything but the same constant.
+
+**What you need to do**
+
+To switch which credentials a PM2-managed integration uses, replace the
+file before starting, deliberately:
+
+```bash
+cp .env .env.prod      # keep the current one around
+cp -f .env.dev .env    # promote the one you want active
+integra-manager start
+```
+
+To run two credential sets *simultaneously*, `duplicate` the integration
+— each copy gets its own `live/`, and therefore its own `.env`.
+
+If any registry entry on disk still has an `env_file` field (from before
+this change), remove it — `checkout`, edit the staged file, `publish`.
+Entries with it will fail validation on load otherwise.
+
+---
+
 ## @int3gra/manager & @int3gra/cli — `/opt/integra`, manual setup, no more postinstall
 
 **What changed**

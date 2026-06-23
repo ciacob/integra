@@ -158,8 +158,15 @@ describe("registry-entry schema shape", () => {
       description: "Does a thing",
       schedule:    "*/5 * * * *",
       max_ttl:     240,
-      env_file:    ".env.dev",
     })).toBe(true);
+  });
+
+  test("rejects env_file — PM2-managed processes always use .env, no override", () => {
+    expect(validate({
+      id:       "my-integration",
+      path:     "./my-integration",
+      env_file: ".env.dev",
+    })).toBe(false);
   });
 
   test("rejects an entry missing id", () => {

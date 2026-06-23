@@ -29,7 +29,7 @@ resolved automatically regardless of where you invoke from.
 ## Runtime commands
 
 ```bash
-integra-manager start [--env <file>]   # Start all enabled integrations
+integra-manager start                  # Start all enabled integrations
 integra-manager stop <id>              # Stop an integration
 integra-manager restart <id>           # Restart an integration
 integra-manager status                 # Show status, lifecycle, env, uptime

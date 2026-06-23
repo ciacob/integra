@@ -26,8 +26,11 @@ const HELP = `
 integra-manager — integration supervisor
 
 Runtime commands:
-  integra-manager start [--env file] Start all enabled integrations.
-                                     --env: env file to use (default: .env per integration).
+  integra-manager start              Start all enabled integrations. Each always uses its
+                                     own .env — no override. To run against different
+                                     credentials, replace .env before starting (e.g.
+                                     'cp .env.dev .env'); to run two credential sets at
+                                     once, 'duplicate' the integration instead.
                                      Behaviour depends on lifecycle (see below).
   integra-manager stop <id>          Stop an integration and any associated processes
   integra-manager restart <id>       Restart an integration (targets the right process per lifecycle)
@@ -64,11 +67,10 @@ Registry entry fields:
   enabled     true | false
   schedule    Cron expression — makes the integration "scheduled"  e.g. "*/5 * * * *"
   max_ttl     Seconds before TC forcibly kills a runaway scheduled integration
-  env_file    Relative path to a non-default env file
 
 Every command resolves integra's one fixed home (/opt/integra) automatically
 — there is no need to run this from any particular directory. The home
-must already exist on this host; run `integra setup` (as root) once,
+must already exist on this host; run 'integra setup' (as root) once,
 before the first command, if it doesn't.
 `;
 
@@ -90,10 +92,7 @@ async function main() {
 
   switch (command) {
     case "start": {
-      // Parse optional --env flag: integra-manager start --env .env.dev
-      const envFlag = args.find((a, i) => a === "--env" && args[i + 1]);
-      const envFile = envFlag ? args[args.indexOf("--env") + 1] : null;
-      await startAll(cwd, envFile);
+      await startAll(cwd);
       console.log("✓ All enabled integrations started.");
       break;
     }

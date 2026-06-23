@@ -35,10 +35,6 @@
       "type": "integer",
       "minimum": 1,
       "description": "Maximum run time in seconds before the TrafficController forcibly restarts the integration."
-    },
-    "env_file": {
-      "type": "string",
-      "description": "Relative path to the env file for this integration. Default: .env"
     }
   }
 }

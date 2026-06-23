@@ -209,7 +209,7 @@ integra init my-sn-jira
 # for the exact command; it already points back at the right place)
 git clone <user>@<host>:/opt/integra/.integrations/my-sn-jira/live my-sn-jira
 cd my-sn-jira
-cp .env.example .env              # fill in your own credentials, never commit this file
+cp .env.example .env              # fill in the integration's credentials — commit this, like any other file
 git checkout -b my-patch
 
 # Author your components in connections/, maps/, processes/, resolvers/
@@ -293,18 +293,41 @@ For listener integrations, `integra test` starts the real Fastify server, fires 
 
 Move any fixture file into `.disabled/` to exclude it without deleting it. Move it back to re-enable.
 
-### Env file switching
+### Env files: committed, not personal
 
-`integra run` and `integra-manager start` accept `--env` to select a specific env file. Defaults to `.env`. This is the recommended way to test against sub-production or staging platforms — same implementation, different credentials:
+`.env` holds an integration's own credentials, not a personal developer
+secret — and unlike most tools of this kind, it **must be committed**,
+the same as any other file in `live/`. There is no other mechanism that
+gets it onto the host: nothing creates, copies, or syncs it outside of
+git. A developer fills it in once (`cp .env.example .env`), commits it on
+their branch, and pushes — exactly like any other change. Alternate env
+files (`.env.dev`, `.env.staging`, etc.) are committed the same way,
+sibling to `.env` at the integration's own root.
+
+`run`, `test`, `validate`, and `ping` take `--env <file>` to pick which
+committed file to use instead of `.env`, resolved relative to the current
+directory:
 
 ```bash
 integra run my-process-id --env .env.dev
-integra-manager start     --env .env.staging
 ```
 
-The manager's `status` command shows which env file each running integration was started with.
+`integra-manager start` has no `--env` flag — a PM2-managed (scheduled or
+listener) integration always runs on its `.env`, deliberately, with no
+override. To switch which credentials that is, replace the file before
+starting:
 
-> `integra test` intentionally does not accept `--env` — it never touches real endpoints and has no need for credentials.
+```bash
+cp .env .env.prod      # keep the current one around
+cp -f .env.dev .env    # promote the one you want active
+integra-manager start
+```
+
+To run two credential sets *simultaneously*, `duplicate` the integration
+instead — each copy gets its own `live/`, and therefore its own `.env`.
+
+> `integra test` still doesn't need credentials to run — it never touches
+> real endpoints — but `--env` is accepted there too, for symmetry.
 
 ---
 
