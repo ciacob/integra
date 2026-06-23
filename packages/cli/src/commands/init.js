@@ -16,8 +16,15 @@
  * is safe. Every integration's `live/` is a git repo from the very first
  * second it exists; there is no later "turn this into a repo" step.
  *
- * <path>'s last segment becomes the integration id. <path> itself receives
- * only the guide — it is not where development happens. It is not integra's
+ * <path> is resolved to an absolute path against the invocation directory
+ * before anything else happens (a relative argument like "." or "../foo"
+ * is walked/normalised the same way any real path would be — never a
+ * naive string basename of the raw argument). The resolved path's last
+ * segment becomes the integration id, and must look like a safe token —
+ * starts with a letter, then only letters/digits/hyphens/underscores,
+ * case-insensitive — since it ends up as a directory name, a JSON
+ * filename, and a PM2 process name. <path> itself receives only the
+ * guide — it is not where development happens. It is not integra's
  * business where a developer actually clones and edits; the guide just
  * tells them how.
  *
@@ -91,10 +98,37 @@ export async function init([pathArg]) {
   assertIntegraHomeExists();
   const home        = resolveIntegraHome();
   const invokedFrom = process.cwd();
-  const id           = basename(pathArg.replace(/\/+$/, "")); // strip trailing slashes before taking last segment
 
-  if (!id) {
-    throw new Error(`Could not determine an integration id from path: ${pathArg}`);
+  // Resolve pathArg to an absolute path against invokedFrom before taking
+  // its last segment — NOT a basename() of the raw string. A relative
+  // argument like "." or "../foo" must be resolved the way a real path
+  // would be (walking ".."/"." segments, normalising) before its last
+  // segment means anything; an already-absolute pathArg passes through
+  // resolve() unchanged, so this one call handles both cases. Naively
+  // basename()-ing the raw string previously let `integra init .` produce
+  // the literal, nonsensical id "." instead of the current directory's
+  // real name.
+  const resolvedPath = resolve(invokedFrom, pathArg);
+  const id            = basename(resolvedPath);
+
+  // The id becomes a directory name (.integrations/<id>/live), a JSON
+  // filename (<id>.registry.json), and a PM2 process name — so it must be
+  // a safe, unambiguous token, not just "non-empty". Rule, in the spirit
+  // of a JS variable name or CSS class: starts with a letter, followed by
+  // letters/digits/hyphens/underscores, case-insensitive. This rejects
+  // "." and ".." (resolve()'s normalisation means those never survive to
+  // this point as literal segments anyway, but the root directory "/"
+  // resolving to an empty basename is exactly the case this guards), "~",
+  // leading digits, and anything containing "/", spaces, or other symbols
+  // — while still accepting every id already used throughout this
+  // codebase (e.g. "my-sn-jira", "sn-get-incident").
+  const VALID_ID = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+  if (!VALID_ID.test(id)) {
+    throw new Error(
+      `"${id || resolvedPath}" is not a valid integration id.\n` +
+      `An id must start with a letter and contain only letters, digits, ` +
+      `hyphens, and underscores (e.g. "my-sn-jira", "sn_get_incident").`
+    );
   }
 
   // ── Collision checks — against both possible sources of truth ────────────
@@ -174,7 +208,7 @@ export async function init([pathArg]) {
   // development happens, and integra has no opinion on where the
   // developer's own clone ends up.
 
-  const guideTarget = resolve(invokedFrom, pathArg);
+  const guideTarget = resolvedPath;
   mkdirSync(guideTarget, { recursive: true });
 
   const host = resolvePublicHost();

@@ -23,7 +23,7 @@
 import { jest } from "@jest/globals";
 import { mkdtemp, rm, mkdir, readFile, stat, access, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, basename } from "path";
 import { execSync } from "child_process";
 
 let mockHome;
@@ -84,6 +84,85 @@ describe("integra init", () => {
   test("extracts id correctly when path has a trailing slash", async () => {
     await init(["my-integration/"]);
     await expect(stat(join(home, ".integrations", "my-integration", "live"))).resolves.toBeDefined();
+  });
+
+  // ── Path resolution against cwd ─────────────────────────────────────────────
+  // pathArg is resolved to an absolute path (walking ".."/"." segments,
+  // normalising) before its last segment is taken as the id — never a
+  // naive basename() of the raw argument string.
+
+  test("'.' resolves to the real name of the current directory, not the literal string '.'", async () => {
+    // cwd is a tmpdir whose basename is some random-looking name — that
+    // name is what must become the id, never the literal "." string this
+    // bug previously produced.
+    const expectedId = basename(cwd);
+    await init(["."]);
+    await expect(stat(join(home, ".integrations", expectedId, "live"))).resolves.toBeDefined();
+    const raw = await readFile(join(home, "registry.d", `${expectedId}.registry.json`), "utf-8");
+    expect(JSON.parse(raw).id).toBe(expectedId);
+  });
+
+  test("a relative path with '..' resolves against cwd correctly", async () => {
+    // cwd/sibling-dir doesn't need to exist for resolution purposes —
+    // resolve() is pure string/path math, not a filesystem check.
+    await init(["../my-integration"]);
+    await expect(stat(join(home, ".integrations", "my-integration", "live"))).resolves.toBeDefined();
+  });
+
+  test("an absolute path resolves to itself unchanged (passes through resolve() as a no-op)", async () => {
+    const absPath = join(cwd, "abs-test", "my-integration");
+    await init([absPath]);
+    await expect(stat(join(home, ".integrations", "my-integration", "live"))).resolves.toBeDefined();
+  });
+
+  test("guide lands at the resolved path, not a re-derivation of the raw argument", async () => {
+    await init(["./my-integration"]);
+    await expect(
+      access(join(cwd, "my-integration", "my-integration.guide.md"))
+    ).resolves.toBeUndefined();
+  });
+
+  // ── Id validation ────────────────────────────────────────────────────────────
+  // The id becomes a directory name, a JSON filename, and a PM2 process
+  // name — "non-empty" is not a strong enough rule. Must start with a
+  // letter, then only letters/digits/hyphens/underscores, case-insensitive.
+
+  test("rejects the filesystem root ('/'), whose basename is empty", async () => {
+    await expect(init(["/"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects '~' as an id", async () => {
+    await expect(init(["~"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects an id starting with a digit", async () => {
+    await expect(init(["1-my-integration"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects an id starting with a hyphen", async () => {
+    await expect(init(["-my-integration"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects an id containing spaces", async () => {
+    await expect(init(["my integration"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects an id containing other symbols (e.g. '@')", async () => {
+    await expect(init(["my@integration"])).rejects.toThrow(/not a valid integration id/i);
+  });
+
+  test("accepts an id with underscores, exactly like one with hyphens", async () => {
+    await init(["my_integration"]);
+    await expect(stat(join(home, ".integrations", "my_integration", "live"))).resolves.toBeDefined();
+  });
+
+  test("accepts a mixed-case id — case does not matter", async () => {
+    await init(["My-Integration"]);
+    await expect(stat(join(home, ".integrations", "My-Integration", "live"))).resolves.toBeDefined();
+  });
+
+  test("rejection message names the offending id and states the rule", async () => {
+    await expect(init(["~"])).rejects.toThrow(/letters, digits, hyphens, and underscores/i);
   });
 
   // ── Scaffolding into .integrations/<id>/live ──────────────────────────────
