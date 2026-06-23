@@ -50,12 +50,12 @@ integra-manager checkout <id>             # lock <id>, get an editable staged co
 integra-manager publish <id>              # validate, publish, release the lock
 integra-manager uncheckout <id>           # give up without publishing
 integra-manager delete <id> [--purge]     # remove an entry (--purge also deletes its folder)
-integra-manager duplicate <id> <new-id>   # clone an entry + its integration folder
 ```
 
-There is no separate "create" command — `integra init <path>` (run by the
-developer, from `@int3gra/cli`) is the one creation path; it scaffolds the
-integration and registers it in one step.
+There is no separate "create" or "fork" command here — `integra init
+<path>` and `integra duplicate <path> --id <source-id> --branch <name>`
+(both in `@int3gra/cli`, run by the developer) are the only creation
+paths; each scaffolds an integration and registers it in one step.
 
 ## Deploy commands
 

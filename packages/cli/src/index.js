@@ -5,16 +5,17 @@
  * Minimal command dispatcher. No framework needed.
  */
 
-import { init }     from "./commands/init.js";
-import { validate } from "./commands/validate.js";
-import { run }      from "./commands/run.js";
-import { test }     from "./commands/test.js";
-import { ping }     from "./commands/ping.js";
-import { setup }    from "./commands/setup.js";
+import { init }      from "./commands/init.js";
+import { duplicate } from "./commands/duplicate.js";
+import { validate }  from "./commands/validate.js";
+import { run }       from "./commands/run.js";
+import { test }      from "./commands/test.js";
+import { ping }      from "./commands/ping.js";
+import { setup }     from "./commands/setup.js";
 
 const [,, command, ...args] = process.argv;
 
-const commands = { init, validate, run, test, ping, setup };
+const commands = { init, duplicate, validate, run, test, ping, setup };
 
 if (!command || command === "--help" || command === "-h") {
   console.log(`
@@ -24,6 +25,9 @@ Commands:
   integra setup                     One-off host provisioning. Run once, as root (sudo).
                                      Creates /opt/integra, integra's fixed home.
   integra init <path>               Scaffold a new integration; <path>'s last segment becomes its id
+  integra duplicate <path> --id <source-id> --branch <name>
+                                     Fork a new integration from another's pushed branch — independent
+                                     history, own live/; <path>'s last segment becomes the new id
   integra validate --id <id> --branch <name>
                                      Validate components and processes for a pushed branch (no execution)
   integra run <process-id> --id <id> --branch <name> [--env <file>]

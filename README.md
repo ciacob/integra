@@ -324,8 +324,10 @@ cp -f .env.dev .env    # promote the one you want active
 integra-manager start
 ```
 
-To run two credential sets *simultaneously*, `duplicate` the integration
-instead — each copy gets its own `live/`, and therefore its own `.env`.
+To run two credential sets *simultaneously*, fork the integration instead
+(`integra duplicate <path> --id <source-id> --branch <name>`, in
+`@int3gra/cli`) — each fork gets its own `live/`, and therefore its own
+`.env`.
 
 > `integra test` still doesn't need credentials to run — it never touches
 > real endpoints — but `--env` is accepted there too, for symmetry.
@@ -415,7 +417,7 @@ file, and so that one person's typo can't corrupt everyone else's config.
 
 **`registry.d/` is system-managed. Never hand-edit the files inside it.**
 Treat it like a `dist/` folder — inspectable, but not where you make changes.
-All mutation goes through five subcommands:
+All mutation goes through four subcommands:
 
 ```bash
 integra-manager checkout <id>             # lock <id>, get an editable staged copy
@@ -424,18 +426,21 @@ integra-manager publish <id>              # validate, publish live, release the 
 
 integra-manager uncheckout <id>           # give up without publishing
 integra-manager delete <id> [--purge]     # remove an entry (--purge also deletes its folder)
-integra-manager duplicate <id> <new-id>   # clone an entry + its integration folder
 ```
 
 There is no separate "create" command for registry entries. `integra init
 <path>` (run by the developer, not the manager) is the one creation path —
 it scaffolds the integration's real working tree directly into
 `.integrations/<id>/live`, turns that into a git repository, and registers
-it in `registry.d/` in the same step. `checkout` is edit-only: it refuses
-outright on an id that isn't already registered, rather than silently
-seeding a template — a typo'd id should be a clear error, not a ghost
-entry. See "Git-backed deploy" below for the full picture of how
-`.integrations/<id>/live` fits together with `init`, `deploy`, and `undeploy`.
+it in `registry.d/` in the same step. `integra duplicate <path> --id
+<source-id> --branch <name>` is the other: the same sequence, seeded from
+an existing integration's pushed branch instead of an empty template — a
+genuine fork, with its own git history and no shared ancestry with the
+source. `checkout` is edit-only: it refuses outright on an id that isn't
+already registered, rather than silently seeding a template — a typo'd id
+should be a clear error, not a ghost entry. See "Git-backed deploy" below
+for the full picture of how `.integrations/<id>/live` fits together with
+`init`, `deploy`, and `undeploy`.
 
 **Locks are exclusive and time-boxed** (30 minutes by default). Only the
 user who acquired a lock may publish or uncheckout against it — unless it

@@ -110,6 +110,32 @@ async function archiveShaInto(liveDir, sha, finalDir) {
 }
 
 /**
+ * Archives `branch`'s current tree directly into `targetDir`, with zero
+ * git metadata — no caching, no content-addressed path, no sweep
+ * involvement. Reuses the same SHA-resolution and tar-extraction
+ * primitives resolveArchive() uses internally, but for a caller that
+ * wants a branch's content materialized at a specific, *permanent* path
+ * (e.g. `duplicate`'s newly-created live/) rather than the ephemeral,
+ * swept .integrations/<id>/tests/ area resolveArchive() manages.
+ *
+ * `targetDir` must not already exist — same atomic-rename safety as
+ * archiveShaInto() itself, just surfaced to a caller that's creating a
+ * permanent directory rather than reusing a cache slot, so there is no
+ * legitimate reason for it to exist beforehand.
+ *
+ * Returns the resolved sha (the caller already knows liveDir and branch;
+ * the sha is the one piece of information only this function can supply).
+ */
+export async function archiveBranchInto(liveDir, branch, targetDir) {
+  if (existsSync(targetDir)) {
+    throw new Error(`Cannot archive into ${targetDir}: it already exists.`);
+  }
+  const sha = resolveBranchSha(liveDir, branch);
+  await archiveShaInto(liveDir, sha, targetDir);
+  return sha;
+}
+
+/**
  * Resolves an ephemeral, content-addressed archive of `branch` for
  * integration `id`. Reuses an existing archive if the branch hasn't moved
  * since the last call; otherwise archives fresh from live/'s own object

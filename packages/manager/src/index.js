@@ -14,7 +14,6 @@ import { checkout }                                from "./commands/checkout.js"
 import { publish }                                 from "./commands/publish.js";
 import { uncheckout }                               from "./commands/uncheckout.js";
 import { deleteEntry }                              from "./commands/delete.js";
-import { duplicate }                                from "./commands/duplicate.js";
 import { deploy }                                   from "./commands/deploy.js";
 import { undeploy }                                 from "./commands/undeploy.js";
 import { deployHistory }                            from "./commands/deployHistory.js";
@@ -30,7 +29,9 @@ Runtime commands:
                                      own .env — no override. To run against different
                                      credentials, replace .env before starting (e.g.
                                      'cp .env.dev .env'); to run two credential sets at
-                                     once, 'duplicate' the integration instead.
+                                     once, simultaneously, fork the integration instead
+                                     ('integra duplicate', in @int3gra/cli) — each fork
+                                     gets its own live/ and its own .env.
                                      Behaviour depends on lifecycle (see below).
   integra-manager stop <id>          Stop an integration and any associated processes
   integra-manager restart <id>       Restart an integration (targets the right process per lifecycle)
@@ -47,7 +48,6 @@ Registry commands (registry.d/ — never hand-edit these files):
                                      [file] defaults to the staging copy from checkout.
   integra-manager uncheckout <id>    Release your lock without publishing.
   integra-manager delete <id> [--purge]  Remove a published entry. --purge also deletes its folder.
-  integra-manager duplicate <id> <new-id>  Lock <new-id>, seed it from <id>, copy the integration folder.
 
 Git-backed deploy commands (see README "Git-backed deploy" for the full model):
   integra-manager deploy <id> --branch <name>  Fast-forward live/ to a local branch already
@@ -167,16 +167,6 @@ async function main() {
       const result = await deleteEntry(args[0], { cwd, purge });
       console.log(`✓ Deleted: ${result.id}`);
       if (result.purgedPath) console.log(`  Purged: ${result.purgedPath}`);
-      break;
-    }
-
-    case "duplicate": {
-      if (!args[0] || !args[1]) throw new Error("Usage: integra-manager duplicate <id> <new-id>");
-      const result = await duplicate(args[0], args[1], { cwd });
-      console.log(`✓ Duplicated "${args[0]}" → "${result.id}"`);
-      console.log(`  Staging file: ${result.stagingPath}`);
-      console.log(`  Integration dir: ${result.integrationDir}`);
-      console.log(`  Remember to edit and 'publish ${result.id}' when ready.`);
       break;
     }
 

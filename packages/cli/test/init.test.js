@@ -33,7 +33,71 @@ jest.unstable_mockModule("@int3gra/manager/home", () => ({
   assertIntegraHomeExists: () => {}, // mockHome always exists in these tests — nothing to assert
 }));
 
-const { init } = await import("../src/commands/init.js");
+const { init, resolveAndValidateId } = await import("../src/commands/init.js");
+
+describe("resolveAndValidateId (pure)", () => {
+  test("resolves a simple relative path against invokedFrom", () => {
+    const { id, resolvedPath } = resolveAndValidateId("my-integration", "/home/dev");
+    expect(id).toBe("my-integration");
+    expect(resolvedPath).toBe("/home/dev/my-integration");
+  });
+
+  test("'.' resolves to invokedFrom's own basename, not the literal string '.'", () => {
+    const { id, resolvedPath } = resolveAndValidateId(".", "/home/dev/my-project");
+    expect(id).toBe("my-project");
+    expect(resolvedPath).toBe("/home/dev/my-project");
+  });
+
+  test("'..' walks up correctly", () => {
+    const { id } = resolveAndValidateId("..", "/home/dev/my-project/nested");
+    expect(id).toBe("my-project");
+  });
+
+  test("an absolute path passes through resolve() unchanged", () => {
+    const { id, resolvedPath } = resolveAndValidateId("/opt/somewhere/my-int", "/home/dev");
+    expect(id).toBe("my-int");
+    expect(resolvedPath).toBe("/opt/somewhere/my-int");
+  });
+
+  test("strips a trailing slash before taking the last segment", () => {
+    const { id } = resolveAndValidateId("my-integration/", "/home/dev");
+    expect(id).toBe("my-integration");
+  });
+
+  test("rejects the filesystem root, whose basename is empty", () => {
+    expect(() => resolveAndValidateId("/", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects '~'", () => {
+    expect(() => resolveAndValidateId("~", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects a leading digit", () => {
+    expect(() => resolveAndValidateId("1-bad", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects a leading hyphen", () => {
+    expect(() => resolveAndValidateId("-bad", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects embedded spaces", () => {
+    expect(() => resolveAndValidateId("my integration", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("rejects embedded symbols", () => {
+    expect(() => resolveAndValidateId("my@integration", "/home/dev")).toThrow(/not a valid integration id/i);
+  });
+
+  test("accepts underscores", () => {
+    const { id } = resolveAndValidateId("my_integration", "/home/dev");
+    expect(id).toBe("my_integration");
+  });
+
+  test("accepts mixed case", () => {
+    const { id } = resolveAndValidateId("My-Integration", "/home/dev");
+    expect(id).toBe("My-Integration");
+  });
+});
 
 describe("integra init", () => {
   let cwd, originalCwd;

@@ -1,5 +1,54 @@
 # Changelog
 
+## @int3gra/cli — `integra duplicate`: fork a new integration from another's pushed branch
+
+**What changed**
+
+`integra-manager duplicate <id> <new-id>` is gone — removed outright, not
+deprecated. In its place: `integra duplicate <path> --id <source-id>
+--branch <name>`, a CLI command (not a manager command), which forks a
+brand new, fully independent integration, seeded from another
+integration's already-pushed branch.
+
+It runs the exact same sequence `integra init` does — id resolution and
+validation from `<path>`, collision checks, `git init` and an initial
+commit, registration in `registry.d/`, guide delivery — with exactly one
+difference: instead of an empty template, the new `live/` is populated
+from `--id`'s `--branch`, via the same `git archive` mechanism `--branch`
+(on `run`/`validate`/`ping`/`test`) already uses internally to materialize
+a branch's content, called directly against a permanent destination this
+time rather than the ephemeral, swept `.integrations/<id>/tests/` area
+those commands use.
+
+The result is a genuine fork, not a clone: the new `live/` gets its own,
+brand new git history — one fresh commit of the forked content — with no
+shared ancestry with the source. There is no way to fast-forward changes
+between the two afterward; they are two independent integrations from
+that point on. The forked `integra.json` keeps the source branch's real
+field values (notably `entry`) — only `id` is rewritten, and `created` is
+regenerated.
+
+**Why**
+
+The old `integra-manager duplicate` cloned a registry entry and copied a
+folder, server-side, with no git involved — a half-thought feature that
+predated `--branch`/`git archive` entirely. It's now a special case of
+`init` instead of a separate, parallel mechanism: same validation, same
+collision handling, same guide, with the content source swapped. This
+also moves it to the package where `init` (and the rest of the
+developer-facing command surface) already lives, rather than the
+operator-facing `@int3gra/manager`.
+
+**What you need to do**
+
+Replace any use of `integra-manager duplicate <id> <new-id>` with
+`integra duplicate <path> --id <source-id> --branch <name>` — push the
+state you want forked as a branch first, since unlike the old command,
+this one forks a specific, named commit, never whatever `live/` happens
+to currently contain.
+
+---
+
 ## @int3gra/cli — `--id` and `--branch` are now mandatory on `run`/`validate`/`ping`/`test`
 
 **What changed**

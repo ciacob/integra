@@ -23,6 +23,7 @@ fails immediately, with a clear message, if it's missing.
 ```bash
 integra setup                                                # One-off host provisioning. Run once, as root.
 integra init <path>                                          # Scaffold a new integration; <path>'s last segment becomes its id
+integra duplicate <path> --id <source-id> --branch <name>    # Fork a new integration from another's pushed branch
 integra validate --id <id> --branch <name>                   # Validate a pushed branch's integra.json and component files
 integra run <process-id> --id <id> --branch <name>           # Execute a process for real, against a pushed branch
 integra run <process-id> --id <id> --branch <name> --env <file>  # Run with a specific committed env file
@@ -52,6 +53,22 @@ generated guide with clone and workflow instructions:
   test/fixtures/webhooks/   test/fixtures/responses/   test/fixtures/.disabled/
   integra.json   .env.example
 ```
+
+### `integra duplicate`
+
+Same sequence as `integra init`, with one difference: instead of an empty
+template, the new `live/` is seeded from `--id`'s `--branch` — already
+pushed into that integration's own `live/`. The result is a genuine fork:
+brand new git history, no shared ancestry with the source, no way to
+fast-forward changes between the two afterward. The forked
+`integra.json` keeps the source branch's real values (its `entry`
+process, in particular) — only `id` is rewritten and `created` is
+regenerated.
+
+Use this to run the same integration on two credential sets
+simultaneously (each fork gets its own `live/` and its own `.env`), or to
+branch off an integration's logic into something that will diverge for
+good.
 
 ### `integra test`
 

@@ -164,3 +164,91 @@ describe("resolveArchive", () => {
     expect(content).toBe("v2\n");
   });
 });
+
+describe("archiveBranchInto", () => {
+  // No registry setup needed — archiveBranchInto takes liveDir directly,
+  // unlike resolveArchive which looks the integration up by id first.
+  let cwd, liveDir;
+
+  function sh(cmd, dir) {
+    return execSync(cmd, { cwd: dir, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+  }
+
+  beforeEach(async () => {
+    cwd     = await mkdtemp(join(tmpdir(), "integra-archivebranchinto-test-"));
+    liveDir = join(cwd, "live");
+
+    sh(`mkdir -p ${liveDir}`, cwd);
+    sh("git init -q", liveDir);
+    sh("git config user.email test@test.com", liveDir);
+    sh("git config user.name test", liveDir);
+    await writeFile(join(liveDir, "file.txt"), "v1\n");
+    sh("git add -A", liveDir);
+    sh('git commit -q -m "v1"', liveDir);
+    sh("git branch -M master", liveDir);
+  });
+
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  async function pushBranch(branchName, fileContent) {
+    const devClone = join(cwd, `dev-clone-${branchName}`);
+    sh(`git clone -q ${liveDir} ${devClone}`, cwd);
+    sh("git config user.email test@test.com", devClone);
+    sh("git config user.name test", devClone);
+    sh(`git checkout -q -b ${branchName}`, devClone);
+    await writeFile(join(devClone, "file.txt"), fileContent);
+    sh("git add -A", devClone);
+    sh(`git commit -q -m "on ${branchName}"`, devClone);
+    sh(`git push -q origin ${branchName}`, devClone);
+  }
+
+  test("materializes a branch's tree at the given target directory", async () => {
+    await pushBranch("feature-a", "from-branch\n");
+    const target = join(cwd, "forked-live");
+
+    const { archiveBranchInto } = await import("../src/archive.js");
+    await archiveBranchInto(liveDir, "feature-a", target);
+
+    const content = await readFile(join(target, "file.txt"), "utf-8");
+    expect(content).toBe("from-branch\n");
+  });
+
+  test("returns the branch's resolved sha", async () => {
+    await pushBranch("feature-b", "v2\n");
+    const target = join(cwd, "forked-live-2");
+    const expectedSha = sh("git rev-parse feature-b", liveDir);
+
+    const { archiveBranchInto } = await import("../src/archive.js");
+    const sha = await archiveBranchInto(liveDir, "feature-b", target);
+
+    expect(sha).toBe(expectedSha);
+  });
+
+  test("produces no .git directory at the target — fully disconnected from the source repo", async () => {
+    await pushBranch("feature-c", "v3\n");
+    const target = join(cwd, "forked-live-3");
+
+    const { archiveBranchInto } = await import("../src/archive.js");
+    await archiveBranchInto(liveDir, "feature-c", target);
+
+    const entries = await readdir(target);
+    expect(entries).not.toContain(".git");
+  });
+
+  test("throws when the target directory already exists", async () => {
+    await pushBranch("feature-d", "v4\n");
+    const target = join(cwd, "already-here");
+    await sh(`mkdir -p ${target}`, cwd);
+
+    const { archiveBranchInto } = await import("../src/archive.js");
+    await expect(archiveBranchInto(liveDir, "feature-d", target)).rejects.toThrow(/already exists/i);
+  });
+
+  test("throws a clear error when the branch was never pushed", async () => {
+    const target = join(cwd, "forked-live-4");
+    const { archiveBranchInto } = await import("../src/archive.js");
+    await expect(archiveBranchInto(liveDir, "never-pushed", target)).rejects.toThrow(/not found in live/i);
+  });
+});
