@@ -22,7 +22,7 @@ fails immediately, with a clear message, if it's missing.
 
 ```bash
 integra setup                    # One-off host provisioning. Run once, as root.
-integra init <name>              # Scaffold a new integration directory
+integra init <path>              # Scaffold a new integration; <path>'s last segment becomes its id
 integra validate                 # Validate integra.json and all component files
 integra run <process-id>         # Execute a process locally
 integra run <process-id> --env <file>  # Run with a specific env file
@@ -32,14 +32,23 @@ integra ping --con <id>[,<id>]   # Ping specific connection(s)
 integra ping --env <file>        # Ping with a specific env file
 ```
 
+`run`, `validate`, `ping`, and `test` also accept `--branch <name>`, to try
+out a branch already pushed into the integration's `live/` repository
+without touching the live code or running a deploy. See the root README's
+"Git-backed deploy" section for the full model.
+
 ### `integra init`
 
-Scaffolds a new integration directory with the standard layout:
+Scaffolds a new integration. The real working tree is written to
+`.integrations/<id>/live` on the host (not at `<path>` itself — see the
+root README's "Integra home" and "Git-backed deploy" sections), turned
+into a git repository, and registered. `<path>` itself receives only a
+generated guide with clone and workflow instructions:
 
 ```
-my-integration/
+.integrations/<id>/live/
   connections/   maps/   processes/   resolvers/   logs/
-  test/fixtures/webhooks/   test/fixtures/responses/
+  test/fixtures/webhooks/   test/fixtures/responses/   test/fixtures/.disabled/
   integra.json   .env.example
 ```
 

@@ -64,11 +64,14 @@ JIRA_PROJECT_KEY=OPS
 LOG_LEVEL=info
 ```
 
-The schedule and max_ttl live in the parent `registry.json`, not here:
+The schedule and max_ttl live in this integration's registry entry
+(`registry.d/example-sn-jira.registry.json` on the host), not here:
 
 ```json
 {
   "id":       "example-sn-jira",
+  "path":     "./example-sn-jira",
+  "enabled":  true,
   "schedule": "*/5 * * * *",
   "max_ttl":  240
 }
@@ -104,7 +107,7 @@ The process runs once and exits, logging a structured summary at the end:
 
 ## Running via the manager (scheduled)
 
-From the directory containing `registry.json`:
+Already registered in this repo's `registry.d/`. From any directory, once `integra setup` has been run on the host:
 
 ```bash
 integra-manager start
@@ -122,6 +125,7 @@ The `status` output will show both the integration process and its TrafficContro
 connections/
   sn-get-incident.json       ← GET /api/now/table/incident (open only)
   jira-create-issue.json     ← POST /rest/api/3/issue
+  no-op.json                 ← used by `integra ping` to check connectivity
 
 maps/
   sn-to-jira-incident.json   ← SN incident shape → Jira issue payload

@@ -27,7 +27,8 @@ const result = await boot("/path/to/my-integration", {
 ### Utility exports
 
 ```javascript
-import { validateManifest, readManifest } from "@int3gra/engine";
+import { readManifest }                  from "@int3gra/engine";
+import { validateManifest }              from "@int3gra/engine/loader";
 import { resolveAuthHeaders, buildBasicAuthHeader,
          getOrRefreshToken }              from "@int3gra/engine/authUtilities";
 import { receiveAttachment,

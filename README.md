@@ -1,3 +1,5 @@
+![integra](./identity/img/integra-lockup-horizontal.svg)
+
 # integra
 
 A configuration-driven integration middleware engine. One instance per integration. No multitenancy. No surprises.
@@ -25,10 +27,6 @@ flowchart LR
     A1 -- "REST / Webhook" --> M1
     M3 -- "REST / Webhook" --> B1
     M3 -.->|"optional\nfeedback"| M1
- 
-    style SystemA fill:#e8f4fd,stroke:#2980b9
-    style SystemB fill:#eafaf1,stroke:#27ae60
-    style Middleware fill:#fef9e7,stroke:#f39c12
 ```
  
 An integration middleware sits between two or more software systems and takes care of the plumbing between them. It speaks to each system in its own language — polling or receiving data from one, transforming it into the shape the other expects, and pushing it across. It handles authentication, retries, error recovery, and logging so that neither system needs to know anything about the other. Without a middleware layer, every integration becomes a one-off script that is hard to observe, harder to maintain, and nearly impossible to reuse.
@@ -82,10 +80,6 @@ flowchart TB
  
     Config -->|"loaded & validated\nat boot"| Engine
     Engine -->|"runs inside"| Runtime
- 
-    style Config fill:#eaf4fb,stroke:#2980b9
-    style Engine fill:#fef9e7,stroke:#e67e22
-    style Runtime fill:#eafaf1,stroke:#27ae60
 ```
  
 Integra's architecture rests on a clean separation between what is **generic** and what is **specific**. The engine is stock — it never changes between integrations. Everything specific to a particular integration lives in JSON component files and JavaScript resolver modules, authored once and loaded at boot. The engine validates, lints, resolves, and executes. It knows nothing about, e.g., ServiceNow or Jira. That knowledge lives entirely in the configuration layer, where it belongs.
@@ -200,26 +194,39 @@ means no team ever has to fight `EACCES` errors to get work done.
 
 ## Developer workflow
 
-```bash
-# Scaffold a new integration
-integra init my-sn-jira
-cd my-sn-jira
+`integra init` always runs on the server, never on a developer's own
+machine — there is no separate developer-machine install. It scaffolds
+the integration's real working tree into `.integrations/<id>/live` and
+turns it into a git repository immediately. A developer then clones that
+repository to their own machine, edits there, and pushes a branch back
+into `live/` when ready:
 
-# Copy and fill in your credentials
-cp .env.example .env
+```bash
+# On the server
+integra init my-sn-jira
+
+# On your own machine — clone directly from live/ (see the generated guide
+# for the exact command; it already points back at the right place)
+git clone <user>@<host>:/opt/integra/.integrations/my-sn-jira/live my-sn-jira
+cd my-sn-jira
+cp .env.example .env              # fill in your own credentials, never commit this file
+git checkout -b my-patch
 
 # Author your components in connections/, maps/, processes/, resolvers/
 # Set the entry process in integra.json
 
-# Validate structure and schemas without running
-integra validate
+integra validate                  # structural checks — no real systems touched
+integra test                      # mock-tested against fixtures — no real systems touched
+integra run my-process-id         # a real run, against your own .env
 
-# Run a process locally (uses .env by default)
-integra run my-process-id
-
-# Run with a specific env file — useful for sub-production or staging setups
-integra run my-process-id --env .env.dev
+git add -A && git commit -m "..."
+git push origin my-patch          # pushes the branch directly into live/
 ```
+
+Pushing a branch does not affect the running integration by itself — it
+only makes that branch exist inside `live/`. Promoting it to production is
+a separate, explicit step; see "Git-backed deploy" below for that, and for
+how to try out a pushed branch (`--branch`) before asking for a deploy.
 
 ---
 
@@ -627,6 +634,14 @@ integra run sync-incident-sn-to-jira
           { "component": "my-map" },
           { "if": "{{fn:shouldBreak(shared)}}", "steps": [ { "break": "my-loop" } ] }
         ]
+      },
+      {
+        "switch": "{{shared.status}}",
+        "cases": {
+          "open":    { "steps": [ { "component": "handle-open" } ] },
+          "closed":  { "steps": [ { "component": "handle-closed" } ] },
+          "default": { "steps": [ { "component": "handle-unknown" } ] }
+        }
       }
     ]
   }
@@ -833,7 +848,7 @@ When a webhook sender appends query parameters to the URL, the listener exposes 
 
 ```
 input.payload   — parsed JSON body
-input.query     — query string parameters  ← new
+input.query     — query string parameters
 input.headers   — all request headers
 input.rawBody   — raw body bytes (Buffer), useful for custom HMAC verification
 ```

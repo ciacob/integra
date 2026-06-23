@@ -14,43 +14,59 @@ PM2 must also be installed globally:
 npm install -g pm2
 ```
 
-## Commands
+Then, once per host, as root:
 
-Run from the directory containing `registry.json`:
+```bash
+sudo integra setup
+```
+
+This provisions `/opt/integra` — integra's one fixed home, where
+`registry.d/` and `.integrations/` live. Every command below checks for
+it and fails immediately, with a clear message, if it's missing. There is
+no need to run any command from a particular directory — the home is
+resolved automatically regardless of where you invoke from.
+
+## Runtime commands
 
 ```bash
 integra-manager start [--env <file>]   # Start all enabled integrations
 integra-manager stop <id>              # Stop an integration
 integra-manager restart <id>           # Restart an integration
 integra-manager status                 # Show status, lifecycle, env, uptime
-integra-manager logs <id>             # Tail integration logs
+integra-manager logs <id>              # Tail integration logs
 integra-manager enable <id>            # Enable an integration in the registry
 integra-manager disable <id>           # Stop and disable an integration
 ```
 
-## `registry.json`
+## Registry commands
 
-The manager reads a `registry.json` file that lists all known integrations:
+The registry is a directory of fragments — `registry.d/<id>.registry.json`,
+one file per integration — never a single shared file, and never hand-edited
+directly. All changes go through these subcommands, which lock the entry for
+the duration of the edit:
 
-```json
-{
-  "integrations": [
-    {
-      "id":          "my-sn-jira",
-      "path":        "./my-sn-jira",
-      "enabled":     true,
-      "description": "Syncs ServiceNow incidents to Jira",
-      "schedule":    "*/5 * * * *",
-      "max_ttl":     240
-    },
-    {
-      "id":          "my-jira-sn",
-      "path":        "./my-jira-sn",
-      "enabled":     true,
-      "description": "Receives Jira webhooks and creates SN incidents"
-    }
-  ]
-}
+```bash
+integra-manager checkout <id>             # lock <id>, get an editable staged copy
+integra-manager publish <id>              # validate, publish, release the lock
+integra-manager uncheckout <id>           # give up without publishing
+integra-manager delete <id> [--purge]     # remove an entry (--purge also deletes its folder)
+integra-manager duplicate <id> <new-id>   # clone an entry + its integration folder
+```
+
+There is no separate "create" command — `integra init <path>` (run by the
+developer, from `@int3gra/cli`) is the one creation path; it scaffolds the
+integration and registers it in one step.
+
+## Deploy commands
+
+Each integration's working tree, `.integrations/<id>/live`, is itself a
+git repository. Developers push branches into it directly; these commands
+promote or roll back what's actually running:
+
+```bash
+integra-manager deploy <id> --branch <name>   # fast-forward live/ to a branch, restart
+integra-manager undeploy <id>                 # roll back to the previous deploy
+integra-manager deploy-history <id> [-n <count>]  # list recent deploys
 ```
 
 ## Lifecycles
@@ -61,7 +77,11 @@ The manager reads a `registry.json` file that lists all known integrations:
 | `scheduled` | TrafficController fires entry on cron schedule |
 | `listener` | Long-lived Fastify HTTP server, `autorestart: true` |
 
-Lifecycle is declared in each integration's `integra.json`. A `schedule` field in `registry.json` makes an integration scheduled.
+Lifecycle is declared in each integration's `integra.json`. A `schedule`
+field on the registry entry makes an integration scheduled.
+
+For the full picture — locking semantics, the git-backed deploy model,
+and `--branch` — see the [root README](https://github.com/ciacob/integra#readme).
 
 ## Links
 

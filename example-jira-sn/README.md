@@ -66,7 +66,7 @@ node tools/send-test-webhook.js --port 3100 --secret my-other-secret
 
 ## Running via the manager
 
-Add to `registry.json` (already done in the example registry) and start:
+Already registered in this repo's `registry.d/`. From any directory, once `integra setup` has been run on the host:
 
 ```bash
 integra-manager start
@@ -100,6 +100,7 @@ The Jira issue key (`OPS-42`) is stored as `correlation_id` on the ServiceNow in
 ```
 connections/
   sn-create-incident.json    ← POST /api/now/table/incident
+  no-op.json                 ← used by `integra ping` to check connectivity
 
 maps/
   jira-to-sn-incident.json   ← Jira issue → SN incident payload
