@@ -270,4 +270,71 @@ describe("integra duplicate", () => {
     await expect(stat(join(newLiveDir, "connections", "v1.json"))).resolves.toBeDefined();
     await expect(stat(join(newLiveDir, "connections", "v2.json"))).rejects.toThrow();
   });
+
+  // ── .env shelter — the fork must not be wired to connect anywhere out of the box ──
+
+  test("a committed .env is renamed to env.default, not deleted", async () => {
+    await pushBranch("feature-env-a", { ".env": "REAL_CRED=topsecret\n" });
+
+    await duplicate(["new-int", "--id", "source-int", "--branch", "feature-env-a"]);
+
+    const newLiveDir = join(home, ".integrations", "new-int", "live");
+    await expect(stat(join(newLiveDir, ".env"))).rejects.toThrow();
+    const content = await readFile(join(newLiveDir, "env.default"), "utf-8");
+    expect(content).toBe("REAL_CRED=topsecret\n");
+  });
+
+  test("when the source branch has no .env at all, nothing breaks and no env.default is created", async () => {
+    await pushBranch("feature-env-b", {}); // no .env committed
+
+    await duplicate(["new-int", "--id", "source-int", "--branch", "feature-env-b"]);
+
+    const newLiveDir = join(home, ".integrations", "new-int", "live");
+    await expect(stat(join(newLiveDir, "env.default"))).rejects.toThrow();
+    await expect(stat(join(newLiveDir, ".env"))).rejects.toThrow();
+  });
+
+  test("other committed env files (.env.dev, .env.staging) are left exactly as committed — only .env is sheltered", async () => {
+    await pushBranch("feature-env-c", {
+      ".env":         "REAL_CRED=topsecret\n",
+      ".env.dev":     "DEV_CRED=devvalue\n",
+      ".env.staging": "STAGING_CRED=stagingvalue\n",
+    });
+
+    await duplicate(["new-int", "--id", "source-int", "--branch", "feature-env-c"]);
+
+    const newLiveDir = join(home, ".integrations", "new-int", "live");
+    await expect(stat(join(newLiveDir, ".env"))).rejects.toThrow();
+    const devContent     = await readFile(join(newLiveDir, ".env.dev"), "utf-8");
+    const stagingContent = await readFile(join(newLiveDir, ".env.staging"), "utf-8");
+    expect(devContent).toBe("DEV_CRED=devvalue\n");
+    expect(stagingContent).toBe("STAGING_CRED=stagingvalue\n");
+  });
+
+  test("a fresh .env.example replaces whatever the source branch's own contained", async () => {
+    await pushBranch("feature-env-d", {
+      ".env.example": "# SOURCE'S OWN EXAMPLE — should NOT survive into the fork\nSOURCE_SPECIFIC_VAR=x\n",
+    });
+
+    await duplicate(["new-int", "--id", "source-int", "--branch", "feature-env-d"]);
+
+    const newLiveDir = join(home, ".integrations", "new-int", "live");
+    const content = await readFile(join(newLiveDir, ".env.example"), "utf-8");
+    expect(content).not.toContain("SOURCE_SPECIFIC_VAR");
+    expect(content).toContain("Copy to .env and fill in your values");
+  });
+
+  test("the renamed env.default and the fresh .env.example both end up staged/committed in the fork's own history", async () => {
+    await pushBranch("feature-env-e", { ".env": "REAL_CRED=topsecret\n" });
+    await duplicate(["new-int", "--id", "source-int", "--branch", "feature-env-e"]);
+
+    const newLiveDir = join(home, ".integrations", "new-int", "live");
+    // Whether commit succeeded or only staging did (no git identity on this
+    // host — same accommodation as the other commit-dependent tests above),
+    // both files must be tracked/staged, not left as untracked stragglers.
+    const tracked = sh("git status --short", newLiveDir) + sh("git ls-files", newLiveDir);
+    expect(tracked).toContain("env.default");
+    expect(tracked).toContain(".env.example");
+    expect(tracked).not.toContain(".env\n");
+  });
 });

@@ -32,9 +32,20 @@
  * and `created` is regenerated, since this is a genuine new creation
  * moment, distinct from whenever the source branch happened to be
  * authored.
+ *
+ * The fork is deliberately NOT wired to connect anywhere out of the box.
+ * A committed `.env` is renamed to `env.default` (not deleted — the
+ * credentials are still right there, just under a name the engine
+ * doesn't recognise as a default), and a fresh `.env.example` replaces
+ * whatever the source branch's own contained. Connecting the fork to
+ * real systems should be a developer's explicit decision — `cp
+ * env.default .env`, or write a new one entirely — never an accident of
+ * having forked something that already worked. Any OTHER committed env
+ * file (`.env.dev`, `.env.staging`, etc.) is left exactly as committed —
+ * only the bare `.env` gets this treatment.
  */
 
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync, renameSync } from "fs";
 import { readFile } from "fs/promises";
 import { resolve } from "path";
 
@@ -48,13 +59,28 @@ import {
   checkNoCollision,
   gitInitCommit,
   registerAndDeliverGuide,
+  writeEnvExample,
 } from "./init.js";
 
 /**
  * Forks `branch`'s tree from the source integration's live/ directly into
- * `liveDir`, then rewrites the copied integra.json's `id` to `newId` and
- * regenerates `created`, keeping every other field (notably `entry`) as
- * the source branch actually had it.
+ * `liveDir`, then:
+ *   - rewrites the copied integra.json's `id` to `newId` and regenerates
+ *     `created`, keeping every other field (notably `entry`) as the
+ *     source branch actually had it;
+ *   - if a committed `.env` came along, renames it to `env.default` —
+ *     deliberately not a name the engine recognises as a default env
+ *     file, so a freshly forked integration cannot connect anywhere by
+ *     accident. The credentials aren't deleted (they're still right
+ *     there, under a different name, same as live/'s own .env always
+ *     is — no new exposure beyond what already existed), but using them
+ *     again requires a deliberate `cp env.default .env` first. This is
+ *     `.env` specifically — any other committed env file (`.env.dev`,
+ *     `.env.staging`, etc.) is left exactly as committed, untouched;
+ *   - writes a fresh `.env.example`, overwriting whatever the source
+ *     branch's own happened to contain — the new integration's
+ *     ".env.example" should describe ITS OWN expected variables once a
+ *     developer fills it in, not silently inherit the source's.
  */
 async function scaffoldFromBranch(sourceLiveDir, branch, liveDir, newId) {
   await archiveBranchInto(sourceLiveDir, branch, liveDir);
@@ -67,6 +93,13 @@ async function scaffoldFromBranch(sourceLiveDir, branch, liveDir, newId) {
   manifest.created = new Date().toISOString();
 
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+  const envPath = resolve(liveDir, ".env");
+  if (existsSync(envPath)) {
+    renameSync(envPath, resolve(liveDir, "env.default"));
+  }
+
+  writeEnvExample(liveDir);
 }
 
 export async function duplicate(argv) {

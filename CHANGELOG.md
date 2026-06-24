@@ -28,6 +28,16 @@ that point on. The forked `integra.json` keeps the source branch's real
 field values (notably `entry`) — only `id` is rewritten, and `created` is
 regenerated.
 
+The fork is deliberately not wired to connect anywhere out of the box. A
+committed `.env` is renamed to `env.default` — not deleted, just no
+longer a name the engine recognises as a default env file — and a fresh
+`.env.example` replaces whatever the source branch's own contained.
+Connecting the fork to real systems is then a deliberate choice (`cp
+env.default .env`, or write new credentials entirely), never an accident
+of having forked something that already worked. Any other committed env
+file (`.env.dev`, `.env.staging`, etc.) is left exactly as committed —
+only the bare `.env` gets this treatment.
+
 **Why**
 
 The old `integra-manager duplicate` cloned a registry entry and copied a

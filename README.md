@@ -326,8 +326,10 @@ integra-manager start
 
 To run two credential sets *simultaneously*, fork the integration instead
 (`integra duplicate <path> --id <source-id> --branch <name>`, in
-`@int3gra/cli`) — each fork gets its own `live/`, and therefore its own
-`.env`.
+`@int3gra/cli`) — each fork gets its own `live/`. The fork's `.env` is
+deliberately renamed to `env.default` rather than left active (`cp
+env.default .env` to reactivate it) — see "Git-backed deploy" below for
+why.
 
 > `integra test` still doesn't need credentials to run — it never touches
 > real endpoints — but `--env` is accepted there too, for symmetry.

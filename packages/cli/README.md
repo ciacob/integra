@@ -65,10 +65,18 @@ fast-forward changes between the two afterward. The forked
 process, in particular) — only `id` is rewritten and `created` is
 regenerated.
 
-Use this to run the same integration on two credential sets
-simultaneously (each fork gets its own `live/` and its own `.env`), or to
-branch off an integration's logic into something that will diverge for
-good.
+The fork is deliberately not wired to connect anywhere out of the box. A
+committed `.env` is renamed to `env.default` (credentials preserved,
+just not under a name the engine treats as a default) and a fresh
+`.env.example` replaces whatever the source branch's own contained.
+Connecting the fork is then an explicit decision — `cp env.default
+.env`, or write new credentials entirely. Any other committed env file
+(`.env.dev`, `.env.staging`, etc.) is left exactly as committed.
+
+Use this to run the same integration's logic on two credential sets
+simultaneously (each fork gets its own `live/`, sheltered the same way a
+fresh `init` is), or to branch off an integration's logic into something
+that will diverge for good.
 
 ### `integra test`
 

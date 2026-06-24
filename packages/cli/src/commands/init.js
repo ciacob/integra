@@ -164,6 +164,26 @@ export function checkNoCollision(home, id) {
 }
 
 /**
+ * Writes the standard .env.example template into `liveDir`, overwriting
+ * whatever was there before. Shared by scaffoldEmpty (a fresh scaffold
+ * has no .env.example yet) and duplicate.js's fork path (a forked tree
+ * already has the SOURCE branch's own .env.example, which gets replaced
+ * with this fresh one — see duplicate.js's own docstring for why).
+ */
+export function writeEnvExample(liveDir) {
+  writeFileSync(
+    resolve(liveDir, ".env.example"),
+    [
+      "# Environment variables for this integration",
+      "# Copy to .env and fill in your values",
+      "",
+      "# LOG_LEVEL=debug",
+      "",
+    ].join("\n")
+  );
+}
+
+/**
  * Scaffolds an empty integration into `liveDir` from the standard
  * template — connections/, maps/, processes/, resolvers/, an empty
  * integra.json (entry: null), and .env.example. `liveDir` must not
@@ -185,16 +205,7 @@ export function scaffoldEmpty(liveDir, id) {
     JSON.stringify(manifest, null, 2) + "\n"
   );
 
-  writeFileSync(
-    resolve(liveDir, ".env.example"),
-    [
-      "# Environment variables for this integration",
-      "# Copy to .env and fill in your values",
-      "",
-      "# LOG_LEVEL=debug",
-      "",
-    ].join("\n")
-  );
+  writeEnvExample(liveDir);
 }
 
 /**
