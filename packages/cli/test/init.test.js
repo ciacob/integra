@@ -333,6 +333,42 @@ describe("integra init", () => {
     expect(guide).toContain("integra-manager deploy my-integration");
   });
 
+  test("console output tells the user how to download the guide to their own machine, including the general form", async () => {
+    const logs = [];
+    const origLog = console.log;
+    console.log = (...args) => logs.push(args.join(" "));
+    try {
+      await init(["my-integration"]);
+    } finally {
+      console.log = origLog;
+    }
+
+    const joined = logs.join("\n");
+    expect(joined).toContain("scp <user>@<host>:<path> .");
+    // The computed form (a real resolved host) is exercised in
+    // scaffoldGuide.test.js directly, with an injected host value — this
+    // sandbox's own resolvePublicHost() genuinely returns null (see the
+    // clone-line regression test below), so the line actually printed
+    // here is the documented null fallback, not a real computed host.
+    expect(joined).toMatch(/scp \S+@\S+:.*my-integration\.guide\.md \./);
+  });
+
+  test("the scp instruction never embeds null/undefined when host resolution fails (real sandbox condition — see the clone-line regression test above)", async () => {
+    const logs = [];
+    const origLog = console.log;
+    console.log = (...args) => logs.push(args.join(" "));
+    try {
+      await init(["my-integration"]);
+    } finally {
+      console.log = origLog;
+    }
+
+    const joined = logs.join("\n");
+    expect(joined).not.toContain("null");
+    expect(joined).not.toContain("undefined");
+    expect(joined).toMatch(/scp \S+@<this-host>:/);
+  });
+
   test("guide delivered to a nested path lands at that nested path, not at cwd root", async () => {
     await init(["some/nested/my-integration"]);
     await expect(
@@ -340,7 +376,7 @@ describe("integra init", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("regression: a host lookup that returns a non-host string (e.g. a sandbox rejection message on stdout) produces the placeholder clone command, not a corrupted one", async () => {
+  test("regression: a host lookup that returns a non-host string (e.g. a sandbox rejection message on stdout) produces only the general clone form, never a corrupted one", async () => {
     // This exercises the real resolvePublicHost() path in this sandboxed
     // test environment, where the IP-lookup host is genuinely not in the
     // network allowlist and curl returns a rejection message on stdout
@@ -350,9 +386,9 @@ describe("integra init", () => {
     const guide    = await readFile(join(cwd, "my-integration", "my-integration.guide.md"), "utf-8");
     const cloneLine = guide.split("\n").find(l => l.startsWith("git clone"));
     expect(cloneLine).toBeDefined();
-    // Must be the clean placeholder form, never contain whitespace-laden
-    // rejection text where a host/IP belongs.
-    expect(cloneLine).toMatch(/git clone <user>@<this-host>:/);
+    // Must be the clean general form, never contain whitespace-laden
+    // rejection text where a host/IP belongs, and no computed e.g. line.
+    expect(cloneLine).toBe("git clone <user>@<host>:<path> <local-folder-name>");
   });
 
   // ── live/ has no remote of its own ─────────────────────────────────────────

@@ -324,14 +324,24 @@ export async function registerAndDeliverGuide({ id, liveDir, registryDir, entryP
 
   // ── Report ───────────────────────────────────────────────────────────────
 
+  const guidePath = resolve(guideTarget, `${id}.guide.md`);
+
   console.log(`\n✓ Integration "${id}" ${summaryVerb}.`);
   console.log(`  Live tree:  ${liveDir}`);
   console.log(`  Registered: registry.d/${id}.registry.json`);
-  console.log(`  Guide:      ${resolve(guideTarget, `${id}.guide.md`)}`);
+  console.log(`  Guide:      ${guidePath}`);
   if (!host) {
     console.warn(`\n  ⚠  Could not auto-detect this host's address — the guide's clone command is a placeholder.`);
   }
-  console.log(`\nOpen the guide for next steps — including how to clone and start developing.\n`);
+  console.log(`\nOpen the guide for next steps — including how to clone and start developing.`);
+  console.log(`\nTo read it on your own machine, download it first:`);
+  console.log(`  scp <user>@<host>:<path> .`);
+  console.log(`  e.g.:`);
+  console.log(`  scp ${userInfo().username}@${host ?? "<this-host>"}:${guidePath} .`);
+  if (host) {
+    console.log(`  (auto-detected — may be wrong; use the general form above if it is)`);
+  }
+  console.log("");
 }
 
 export async function init([pathArg]) {

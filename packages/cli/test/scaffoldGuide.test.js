@@ -13,11 +13,16 @@ describe("buildScaffoldGuide", () => {
     expect(guide).toContain("git clone deploy@203.0.113.5:/srv/integra/.integrations/my-integration/live my-integration");
   });
 
-  test("with host=null, falls back to a placeholder clone command, never embedding null/undefined literally", () => {
+  test("with host=null, shows only the general clone form — no computed e.g. block, never embedding null/undefined literally", () => {
     const guide = buildScaffoldGuide({ ...baseParams, host: null });
-    expect(guide).toContain("git clone <user>@<this-host>:/srv/integra/.integrations/my-integration/live my-integration");
+    expect(guide).toContain("git clone <user>@<host>:<path> <local-folder-name>");
     expect(guide).not.toContain("nullnull");
     expect(guide).not.toContain("undefined");
+    // No computed clone example at all when host couldn't be resolved —
+    // every "git clone" line must still contain the <user>/<host>
+    // placeholders, never a real, specific value.
+    const cloneLines = guide.split("\n").filter(l => l.includes("git clone"));
+    cloneLines.forEach(l => expect(l).toMatch(/<user>@<host>/));
   });
 
   test("mentions the live/ path so the developer knows not to edit it directly", () => {
@@ -102,5 +107,75 @@ describe("buildScaffoldGuide", () => {
     const headings = guide.match(/^##\s+.+$/gm) ?? [];
     const numbered = headings.filter(h => /^##\s+\d+\./.test(h));
     expect(numbered.length).toBeGreaterThanOrEqual(5); // clone, dev setup, build/push/verify, promote, patch (undo is a 6th, also numbered)
+  });
+
+  // ── Where each command runs ─────────────────────────────────────────────────
+
+  test("explicitly says the clone happens on your own machine, not the SSH session used to set this up", () => {
+    const guide = buildScaffoldGuide({ ...baseParams, host: "203.0.113.5" });
+    expect(guide.toLowerCase()).toMatch(/not over the ssh session/);
+    expect(guide.toLowerCase()).toContain("no editor or ide on the host");
+  });
+
+  test("the auto-detected host gets a 'may be wrong' note, distinct from the host-absent case", () => {
+    const withHost = buildScaffoldGuide({ ...baseParams, host: "203.0.113.5" });
+    expect(withHost.toLowerCase()).toMatch(/auto-detected and may be wrong/);
+
+    const withoutHost = buildScaffoldGuide({ ...baseParams, host: null });
+    expect(withoutHost.toLowerCase()).not.toMatch(/auto-detected and may be wrong/);
+    expect(withoutHost.toLowerCase()).toMatch(/couldn'?t auto-detect/);
+  });
+
+  test("says clone access isn't guaranteed by SSH access alone, not just push access", () => {
+    const guide = buildScaffoldGuide({ ...baseParams, host: "203.0.113.5" });
+    expect(guide.toLowerCase()).toMatch(/clone and push/);
+  });
+
+  test("every transition between 'your own machine' and 'the host, over SSH' is explicitly labeled", () => {
+    const guide = buildScaffoldGuide({ ...baseParams, host: "203.0.113.5" });
+    const lines = guide.split("\n").map(l => l.trim());
+
+    // Walk the document tracking which zone we're nominally in, based on
+    // the explicit labels; flag any git command found while the most
+    // recent label claims we're on the host (over SSH), and any
+    // integra/integra-manager command found while the most recent label
+    // claims we're on the developer's own machine.
+    let zone = null; // "local" | "host" | null (before the first label)
+    const violations = [];
+
+    for (const line of lines) {
+      if (line === "**On your own machine:**") { zone = "local"; continue; }
+      if (line === "**Back on the host, over SSH:**") { zone = "host"; continue; }
+
+      if (zone === "host" && /^git (clone|checkout|add|commit|push)\b/.test(line)) {
+        violations.push(`git command while labeled "host": ${line}`);
+      }
+      if (zone === "local" && /^integra(-manager)? /.test(line)) {
+        violations.push(`integra command while labeled "local": ${line}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("at least one explicit zone label appears before every git command and every integra(-manager) command", () => {
+    const guide = buildScaffoldGuide({ ...baseParams, host: "203.0.113.5" });
+    const lines = guide.split("\n").map(l => l.trim());
+
+    let sawAnyLabel = false;
+    const violations = [];
+
+    for (const line of lines) {
+      if (line === "**On your own machine:**" || line === "**Back on the host, over SSH:**") {
+        sawAnyLabel = true;
+        continue;
+      }
+      const isCommand = /^git (clone|checkout|add|commit|push)\b/.test(line) || /^integra(-manager)? /.test(line);
+      if (isCommand && !sawAnyLabel) {
+        violations.push(`command before any zone label: ${line}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 });

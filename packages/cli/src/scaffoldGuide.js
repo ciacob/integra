@@ -18,6 +18,9 @@
 
 const README_URL = "https://github.com/ciacob/integra#readme";
 
+const ON_YOUR_MACHINE = "**On your own machine:**";
+const ON_THE_HOST      = "**Back on the host, over SSH:**";
+
 /**
  * @param {object} params
  * @param {string} params.id          the integration id
@@ -29,31 +32,33 @@ const README_URL = "https://github.com/ciacob/integra#readme";
 export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
   const cloneTarget = host ? `${osUser}@${host}:${liveDir}` : null;
 
-  const cloneSection = cloneTarget
-    ? [
-        "## 1. Clone it",
-        "",
-        "```bash",
-        "git clone <user>@<host>:<path> <local-folder-name>",
-        "```",
-        "",
-        "e.g.:",
-        "",
-        "```bash",
-        `git clone ${cloneTarget} ${id}`,
-        "```",
-        "",
-        "> note: if this doesn't work as-is, ask whoever administers this host for the right user/host (VPN, jump host, etc.) — if you can SSH in, you can push.",
-      ].join("\n")
-    : [
-        "## 1. Clone it",
-        "",
-        "We couldn't auto-detect this host's address. Ask whoever administers it, then:",
-        "",
-        "```bash",
-        `git clone <user>@<this-host>:${liveDir} ${id}`,
-        "```",
-      ].join("\n");
+  const cloneSection = [
+    "## 1. Clone it",
+    "",
+    ON_YOUR_MACHINE,
+    "",
+    "Not over the SSH session you used to set this up — clone this onto the actual machine you'll write code on. There's no editor or IDE on the host.",
+    "",
+    "```bash",
+    "git clone <user>@<host>:<path> <local-folder-name>",
+    "```",
+    "",
+    cloneTarget
+      ? [
+          "e.g.:",
+          "",
+          "```bash",
+          `git clone ${cloneTarget} ${id}`,
+          "```",
+          "",
+          "> note: this host/address was auto-detected and may be wrong (different network, VPN, jump host) — if it doesn't work, ask whoever administers this host for the right one.",
+        ].join("\n")
+      : [
+          "We couldn't auto-detect this host's address — ask whoever administers it for the right user/host, then fill in the general form above.",
+        ].join("\n"),
+    "",
+    "> note: if you can SSH in, you should be able to clone and push — but that's not guaranteed by SSH access alone; ask if either fails.",
+  ].join("\n");
 
   return [
     `# ${id}`,
@@ -95,6 +100,8 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "```",
     "",
     "> note: nothing local is \"seen\" until pushed — validate/test/run always read what you just pushed, never your working copy.",
+    "",
+    ON_THE_HOST,
     "",
     "Validate the structure:",
     "",
@@ -138,6 +145,8 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "",
     "## 4. Promote to production",
     "",
+    ON_YOUR_MACHINE,
+    "",
     "```bash",
     "cp .env.example .env          # fill in PRODUCTION credentials, commit it like any other file",
     "git add -A && git commit -m \"add production credentials\" && git push origin <your-branch-name>",
@@ -148,6 +157,8 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "```bash",
     "git add -A && git commit -m \"add production credentials\" && git push origin my-patch",
     "```",
+    "",
+    ON_THE_HOST,
     "",
     "On demand, confirm it against production before going further:",
     "",
@@ -205,6 +216,8 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "",
     "## 5. Patch it later",
     "",
+    ON_YOUR_MACHINE,
+    "",
     "Decide where the patch starts from — what's deployed now, or an earlier branch/commit (depends on what you're fixing and this integration's own history):",
     "",
     "```bash",
@@ -224,6 +237,8 @@ export function buildScaffoldGuide({ id, host, liveDir, osUser }) {
     "When confident, deploy it the same way as step 4.",
     "",
     "## 6. Undo a bad deploy",
+    "",
+    ON_THE_HOST,
     "",
     "Check recent deploys:",
     "",

@@ -1,6 +1,6 @@
 {
   "name": "@int3gra/engine",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "type": "module",
   "description": "The int3gra runtime engine",
   "main": "src/index.js",
