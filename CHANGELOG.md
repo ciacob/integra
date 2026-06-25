@@ -1,5 +1,46 @@
 # Changelog
 
+## @int3gra/cli — `live/`'s default branch is always named `live`, and protected by a pre-receive hook
+
+**What changed**
+
+Every `integra init` and `integra duplicate` now names `live/`'s initial
+branch `live` explicitly (`git init --initial-branch=live`), rather than
+leaving it to whatever the host's git defaults to (`master`, `main`, or
+anything else, depending on git version and global config). A
+`pre-receive` hook is installed alongside it, rejecting any direct push
+to that branch with a clear message pointing at the real workflow — push
+a feature branch, then ask for a deploy.
+
+**Why**
+
+Nothing in this codebase's deploy/undeploy/archive logic ever assumed a
+particular branch name — every one of those already takes a branch name
+as an explicit parameter. So the only thing an inconsistent, host-dependent
+default ever bought was confusion: one host's "the branch you must never
+push to" might be `master`, another's `main`, with no way to tell which
+without checking. Naming it the same thing everywhere gives every
+developer one unambiguous signal, regardless of host.
+
+The hook is a deterrent, not a security boundary — anyone with filesystem
+access to `live/` can edit or remove it, and that's fine: this guards
+against the common, accidental case (`git push origin live` typed from
+habit), not a determined actor. `integra-manager deploy`'s own
+fast-forward merge happens locally inside `live/`, never through
+`receive-pack`, so it is correctly unaffected by this hook either way.
+
+**What you need to do**
+
+Nothing for new integrations. For integrations created before this
+change, the host's prior default branch name (whatever it happened to
+be) is unaffected — this only applies going forward, to new `init`/
+`duplicate` calls. There is no retrofit; renaming an existing `live/`'s
+branch after the fact is a manual git operation outside this tool's
+scope, on purpose — it is not something `deploy`/`undeploy` need to
+care about either way.
+
+---
+
 ## @int3gra/cli — `integra duplicate`: fork a new integration from another's pushed branch
 
 **What changed**

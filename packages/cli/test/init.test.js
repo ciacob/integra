@@ -368,4 +368,64 @@ describe("integra init", () => {
       (async () => execSync("git remote", { cwd: liveDir, encoding: "utf-8" }).trim())()
     ).resolves.toBe("");
   });
+
+  // ── live/'s default branch is always named "live" ───────────────────────────
+  // Never whatever the host's git happens to default to (master, main, or
+  // anything else, depending on git version/global config) — one
+  // unambiguous, always-the-same name, on every host, for the one branch
+  // nobody should push to directly.
+
+  test("live/'s initial branch is named 'live', not master/main/whatever the host defaults to", async () => {
+    await init(["my-integration"]);
+    const liveDir = join(home, ".integrations", "my-integration", "live");
+    const branch = execSync("git symbolic-ref --short HEAD", { cwd: liveDir, encoding: "utf-8" }).trim();
+    expect(branch).toBe("live");
+  });
+
+  // ── A pre-receive hook deters direct pushes to that branch ─────────────────
+  // Deterrent, not a hard security boundary (see init.js's own docstring on
+  // buildPreReceiveHook) — but it should genuinely reject the common,
+  // accidental case: a developer pushing straight to "live" from habit.
+
+  test("live/ has an executable pre-receive hook installed", async () => {
+    await init(["my-integration"]);
+    const liveDir = join(home, ".integrations", "my-integration", "live");
+    const hookPath = join(liveDir, ".git", "hooks", "pre-receive");
+    const stats = await stat(hookPath);
+    expect(stats.mode & 0o111).not.toBe(0); // at least one executable bit set
+  });
+
+  test("the installed hook actually rejects a direct push to 'live', end to end", async () => {
+    await init(["my-integration"]);
+    const liveDir = join(home, ".integrations", "my-integration", "live");
+
+    // gitInitCommit's own commit can be a no-op (staged-only) if no git
+    // identity is configured on this host — same accommodation other
+    // tests in this file already make. Configure one here so this test
+    // can push a real second commit regardless of the host's state.
+    execSync("git config user.email test@test.com", { cwd: liveDir });
+    execSync("git config user.name test", { cwd: liveDir });
+    execSync("git add -A", { cwd: liveDir, stdio: "ignore" });
+    execSync('git commit --allow-empty -q -m "ensure at least one commit exists"', { cwd: liveDir, stdio: "ignore" });
+
+    const devClone = await mkdtemp(join(tmpdir(), "integra-hook-test-clone-"));
+    try {
+      execSync(`git clone -q ${liveDir} ${devClone}`);
+      execSync("git config user.email test@test.com", { cwd: devClone });
+      execSync("git config user.name test", { cwd: devClone });
+      await writeFile(join(devClone, "direct-edit.txt"), "should not land");
+      execSync("git add -A", { cwd: devClone, stdio: "ignore" });
+      execSync('git commit -q -m "direct edit"', { cwd: devClone, stdio: "ignore" });
+
+      expect(() => execSync("git push origin live", { cwd: devClone, stdio: "pipe" }))
+        .toThrow();
+
+      // The legitimate path — a differently-named branch — must still work.
+      execSync("git checkout -q -b my-patch", { cwd: devClone });
+      expect(() => execSync("git push origin my-patch", { cwd: devClone, stdio: "pipe" }))
+        .not.toThrow();
+    } finally {
+      await rm(devClone, { recursive: true, force: true });
+    }
+  });
 });

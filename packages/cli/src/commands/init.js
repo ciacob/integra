@@ -208,6 +208,39 @@ export function scaffoldEmpty(liveDir, id) {
   writeEnvExample(liveDir);
 }
 
+const DEFAULT_BRANCH = "live";
+
+/**
+ * The pre-receive hook installed into every freshly created live/ — see
+ * gitInitCommit below. Rejects any push whose target ref is
+ * DEFAULT_BRANCH, with a clear message pointing at the actual workflow
+ * (push a feature branch, then ask for a deploy).
+ *
+ * This is a deterrent, not a security boundary: anyone with filesystem
+ * access to liveDir can edit or delete this file, and integra-manager
+ * deploy's own fast-forward merge happens locally inside liveDir, never
+ * through receive-pack, so it is correctly unaffected by this hook
+ * either way. The goal is only to catch the common, accidental case — a
+ * developer typing `git push origin live` from habit — not to resist a
+ * determined or malicious actor.
+ */
+function buildPreReceiveHook() {
+  return [
+    "#!/bin/sh",
+    `PROTECTED_BRANCH="${DEFAULT_BRANCH}"`,
+    "while read oldrev newrev refname; do",
+    '  branch=$(echo "$refname" | sed \'s|refs/heads/||\')',
+    '  if [ "$branch" = "$PROTECTED_BRANCH" ]; then',
+    `    echo "error: direct pushes to '$PROTECTED_BRANCH' are not allowed." >&2`,
+    '    echo "Push a feature branch instead, then ask for a deploy." >&2',
+    "    exit 1",
+    "  fi",
+    "done",
+    "exit 0",
+    "",
+  ].join("\n");
+}
+
 /**
  * git init + add + commit inside `liveDir` — safe immediately, since
  * there is never a real .env at this point (an empty scaffold has none;
@@ -216,13 +249,31 @@ export function scaffoldEmpty(liveDir, id) {
  * of its own — it IS the repository. Developers clone it directly and
  * push branches back into it.
  *
+ * The initial (and only ever directly-edited) branch is always named
+ * DEFAULT_BRANCH explicitly — never whatever the host's git happens to
+ * default to (master, main, or anything else, depending on git version
+ * and global config). Nothing in this codebase's own deploy/undeploy/
+ * archive logic assumes any particular name — every one of those already
+ * takes a branch name as an explicit parameter — so naming it
+ * consistently is purely about giving every human on the host one
+ * unambiguous, always-the-same signal for "this is the one not to push
+ * to," not a technical requirement.
+ *
+ * A pre-receive hook is installed alongside it, deterring (not
+ * preventing — see buildPreReceiveHook's own docstring) direct pushes to
+ * that branch.
+ *
  * A failed commit (e.g. git user.name/user.email not configured on this
  * host) is not fatal — the repo still exists and is clonable; the
  * developer's first commit from their own clone will succeed once they
  * configure their own identity.
  */
 export function gitInitCommit(liveDir, commitMessage) {
-  execSync("git init", { cwd: liveDir, stdio: "ignore" });
+  execSync(`git init --initial-branch=${DEFAULT_BRANCH}`, { cwd: liveDir, stdio: "ignore" });
+
+  const hooksDir = resolve(liveDir, ".git", "hooks");
+  writeFileSync(resolve(hooksDir, "pre-receive"), buildPreReceiveHook(), { mode: 0o755 });
+
   execSync("git add -A", { cwd: liveDir, stdio: "ignore" });
   try {
     execSync(`git commit -m "${commitMessage}"`, { cwd: liveDir, stdio: "ignore" });
