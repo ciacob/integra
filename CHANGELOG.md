@@ -1,5 +1,40 @@
 # Changelog
 
+## @int3gra/manager — fixed: missing `ajv` dependency on a fresh, standalone install
+
+**What changed**
+
+`@int3gra/manager` imports `ajv` directly (`registryStorage.js`, for
+validating `registry-entry.schema.json`) but never declared it in its own
+`package.json`. Inside this monorepo, that went unnoticed: npm hoists
+`@int3gra/engine`'s own, separate declaration of `ajv` into the shared
+`node_modules` every workspace package can see, which was enough to
+satisfy the import locally. It broke on a genuine standalone install
+(`npm install -g @int3gra/manager`), with `ERR_MODULE_NOT_FOUND: ajv` —
+there is no shared tree to fall back on outside the workspace.
+
+`ajv` is now declared directly in `@int3gra/manager`'s own dependencies.
+
+**Why**
+
+A package's own `package.json` is the only thing a real install — global
+or otherwise — has to go on. Anything imported but undeclared works by
+accident, for as long as some other, unrelated dependency happens to
+pull it in anyway; that accident doesn't survive the package being
+installed on its own.
+
+A new test (`packages/manager/test/packageDependencies.test.js`) now
+scans every package's `src/` for third-party imports and checks each one
+against that same package's own declared dependencies, on every test
+run — confirmed directly to catch this exact bug by reverting the fix
+and re-running it before restoring.
+
+**What you need to do**
+
+Reinstall: `npm install -g @int3gra/engine @int3gra/cli @int3gra/manager`.
+
+---
+
 ## @int3gra/cli — `live/`'s default branch is always named `live`, and protected by a pre-receive hook
 
 **What changed**
